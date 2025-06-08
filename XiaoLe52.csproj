@@ -1,0 +1,100 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Platforms>AnyCPU;x64</Platforms>
+    <SignAssembly>False</SignAssembly>
+    <AssemblyVersion>1.0.3.8</AssemblyVersion>
+    <FileVersion>1.0.3.8</FileVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <Optimize>True</Optimize>
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Optimize>True</Optimize>
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <Optimize>False</Optimize>
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Optimize>False</Optimize>
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="photo\dark\**" />
+    <Compile Remove="photo\light\**" />
+    <EmbeddedResource Remove="photo\dark\**" />
+    <EmbeddedResource Remove="photo\light\**" />
+    <None Remove="photo\dark\**" />
+    <None Remove="photo\light\**" />
+    <Page Remove="photo\dark\**" />
+    <Page Remove="photo\light\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Remove="Pages\png\off.png" />
+    <None Remove="Pages\png\on.png" />
+    <None Remove="photo\Add_4.png" />
+    <None Remove="photo\Auto.png" />
+    <None Remove="photo\beta.png" />
+    <None Remove="photo\GPU.png" />
+    <None Remove="photo\GravityUiGpu.png" />
+    <None Remove="photo\ic_fluent_keyboard_tab_24_filled.png" />
+    <None Remove="photo\IL_03.png" />
+    <None Remove="photo\IL_05.png" />
+    <None Remove="photo\IxListSorted.png" />
+    <None Remove="photo\justone.png" />
+    <None Remove="photo\list.png" />
+    <None Remove="photo\next.png" />
+    <None Remove="photo\old.png" />
+    <None Remove="photo\play.png" />
+    <None Remove="photo\playing.png" />
+    <None Remove="photo\play_on.png" />
+    <None Remove="photo\stoping.png" />
+    <None Remove="photo\theme_big.png" />
+    <None Remove="photo\VaadinEllipsisDotsH.png" />
+    <None Remove="photo\V_0.png" />
+    <None Remove="photo\V_1To50.png" />
+    <None Remove="photo\V_51To100.png" />
+    <None Remove="photo\_11_theme.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CS-Script" Version="4.9.6" />
+    <PackageReference Include="ILGPU" Version="1.5.2" />
+    <PackageReference Include="iNKORE.UI.WPF" Version="1.2.8" />
+    <PackageReference Include="iNKORE.UI.WPF.Emojis" Version="0.3.6.4" />
+    <PackageReference Include="iNKORE.UI.WPF.Modern" Version="0.10.0" />
+    <PackageReference Include="WindowsAPICodePack.Shell.CommonFileDialogs.Wpf" Version="1.1.5.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Pages\png\off.png" />
+    <Resource Include="Pages\png\on.png" />
+    <Resource Include="photo\Add_4.png" />
+    <Resource Include="photo\beta.png" />
+    <Resource Include="photo\GPU.png" />
+    <Resource Include="photo\GravityUiGpu.png" />
+    <Resource Include="photo\IL_03.png" />
+    <Resource Include="photo\IL_05.png" />
+    <Resource Include="photo\list.png" />
+    <Resource Include="photo\next.png" />
+    <Resource Include="photo\old.png" />
+    <Resource Include="photo\play_on.png" />
+    <Resource Include="photo\theme_big.png" />
+    <Resource Include="photo\VaadinEllipsisDotsH.png" />
+    <Resource Include="photo\V_0.png" />
+    <Resource Include="photo\V_1To50.png" />
+    <Resource Include="photo\V_51To100.png" />
+    <Resource Include="photo\_11_theme.png" />
+  </ItemGroup>
+<!--GPU硬件加速-->
+  <ItemGroup>
+<RuntimeHostConfigurationOption Include="Switch.System.Windows.Media.EnableHardwareAccelerationInRdp" Value="true" />
+  </ItemGroup>
+<!--End-->
+</Project>
