@@ -24,7 +24,7 @@
 [UpdateD](https://github.com/YUXUAN888/UpdateD)(用于更新，本项目上改成了使用http的方法使用)
 
 
-# 开发进度/日志
+## 开发进度/日志
 
 
-## [更新日志](https://ilgpu.net/)(仅仅作为日志而已啦~)
+[更新日志](https://github.com/XLOk2568/csharp-easy-ai/blob/main/UpdateLog.txt)(仅仅作为日志而已啦~)
