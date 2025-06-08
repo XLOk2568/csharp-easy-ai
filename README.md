@@ -27,6 +27,9 @@
 [CS-Script](https://github.com/oleg-shilo/cs-script)(用于运行C#脚本，以便于ai自动学习改进自己)
 
 
+[CommonFileDialogs.Wpf](https://github.com/leisn/CommonFileDialogs.Wpf)(用于wpf使用Windows通用文件对话框)
+
+
 ## 开发进度/日志
 
 
