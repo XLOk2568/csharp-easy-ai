@@ -65,7 +65,7 @@
     <None Remove="photo\_11_theme.png" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="CS-Script" Version="4.9.6" />
+    <PackageReference Include="CS-Script" Version="4.9.7" />
     <PackageReference Include="ILGPU" Version="1.5.2" />
     <PackageReference Include="iNKORE.UI.WPF" Version="1.2.8" />
     <PackageReference Include="iNKORE.UI.WPF.Emojis" Version="0.3.6.4" />
