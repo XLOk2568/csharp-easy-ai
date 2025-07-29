@@ -32,6 +32,10 @@
 [CommonFileDialogs.Wpf](https://github.com/leisn/CommonFileDialogs.Wpf)(用于wpf使用Windows通用文件对话框)
 
 
+[ScreenCaptureWpfEasy](https://github.com/XLOk2568/ScreenCaptureWpfEasy)(用于wpf通过GDI捕获用户的显示)
+
+
+
 ## 开发进度/日志
 
 
