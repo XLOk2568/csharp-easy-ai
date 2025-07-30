@@ -16,7 +16,6 @@
             <Canvas Width="96" Height="38" HorizontalAlignment="Left" VerticalAlignment="Bottom">
                 <Button Content="检测更新" Click="Button_Click" Canvas.Left="14"/>
             </Canvas>
-
             <Canvas Width="654" Height="68" HorizontalAlignment="Center" VerticalAlignment="Top" Cursor="" Margin="0,353,0,0">
                 <TextBlock Width="136" Height="33" FontSize="18" HorizontalAlignment="Left" Canvas.Left="259" VerticalAlignment="Center" Cursor="" Canvas.Top="1" ><Run Text="使用的开源项目 "/></TextBlock>
                 <ui:HyperlinkButton Content="taglib-sharp" NavigateUri="https://github.com/mono/taglib-sharp" Canvas.Top="27" Width="99" />
@@ -25,7 +24,6 @@
                 <ui:HyperlinkButton Content="ILGPU" NavigateUri="https://github.com/m4rs-mt/ILGPU" Canvas.Left="352" Canvas.Top="27" Width="61" />
                 <ui:HyperlinkButton Content="WindowsAPICodePack-Shell" NavigateUri="https://github.com/aybe/Windows-API-Code-Pack-1.1" Canvas.Left="413" Canvas.Top="27" Width="235" />
             </Canvas>
-
             <Canvas Background="#00000000" Margin="0,400,0,0" HorizontalAlignment="Center" VerticalAlignment="Bottom" Width="168" Height="58" Cursor="">
                 <ui:ProgressRing x:Name="ring" IsActive="True" Height="38" Width="38"  Visibility="Visible" HorizontalAlignment="Left" Canvas.Left="66"/>
             </Canvas>

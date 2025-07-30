@@ -30,7 +30,7 @@ namespace NavigationViewExample.Pages
         //NV控制页面切换
         public Pages.HomePage Page_Home = new Pages.HomePage();
         public Pages.AboutPage About = new Pages.AboutPage();
-        public Pages.ToolPage Tool = new Pages.ToolPage();
+        public Pages.GuaGua Page_GuaGua = new Pages.GuaGua();
         private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             var item = sender.SelectedItem;
@@ -40,9 +40,9 @@ namespace NavigationViewExample.Pages
             {
                 page = Page_Home;
             }
-            else if(item==NavigationViewItem_Tool)
+            if (item == NavigationViewItem_GG)
             {
-                page = Tool;
+                page = Page_GuaGua;
             }
             else if (item == Aboutb)
             {
@@ -57,10 +57,10 @@ namespace NavigationViewExample.Pages
         private void Page_Loaded(object sender, RoutedEventArgs e)
         {
             NavigationView_Root.SelectedItem = NavigationViewItem_Home;
-            NavigationViewItem_Home.Content =App.IL_all_list[5];
-            NvSet.Content = App.IL_all_list[4];
-            Aboutb.Content = App.IL_all_list[3];
-            Add_list.Content = App.IL_all_list[19];
+            //NavigationViewItem_Home.Content =App.IL_all_list[5];
+            //NvSet.Content = App.IL_all_list[4];
+            //Aboutb.Content = App.IL_all_list[3];
+            //Add_list.Content = App.IL_all_list[19];
         }
         //添加
         private int item_Count = 0;

@@ -15,8 +15,7 @@
                     <ui:FontIcon Icon="{x:Static ui:SegoeFluentIcons.Home}"/>
                 </ui:NavigationViewItem.Icon>
             </ui:NavigationViewItem>
-            <!--第二个-->
-            <ui:NavigationViewItem x:Name="NavigationViewItem_Tool"  Content="Tool">
+            <ui:NavigationViewItem x:Name="NavigationViewItem_GG"  Content="GG">
                 <ui:NavigationViewItem.Icon>
                     <ui:FontIcon Icon="{x:Static ui:SegoeFluentIcons.Home}"/>
                 </ui:NavigationViewItem.Icon>

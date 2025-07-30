@@ -8,7 +8,10 @@
       mc:Ignorable="d" 
       d:DesignHeight="450" d:DesignWidth="800"
       Title="Home">
-    <Grid >
-        <Button Content="Button" Margin="10,10,0,0" VerticalAlignment="Top" Click="Button_Click"/>
-    </Grid>
+    <ui:ScrollViewerEx VerticalScrollBarVisibility="Visible" >
+        <Grid >
+            <ui:Frame x:Name="Frame_Main_MainNv" Margin="0,0,0,0">
+            </ui:Frame >
+        </Grid>
+    </ui:ScrollViewerEx>
 </ui:Page>

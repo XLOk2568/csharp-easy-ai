@@ -8,12 +8,18 @@
       mc:Ignorable="d" 
       d:DesignHeight="450" d:DesignWidth="800"
       Title="KLBQ_CNN_GG" Loaded="Page_Loaded" >
-    <Grid >
+    <ui:ScrollViewerEx VerticalScrollBarVisibility="Visible" >
+        <Grid >
         <Button Content="特征选择" Margin="10,10,0,0" VerticalAlignment="Top" Click="Button_Click"/>
         <TextBox x:Name="informr" TextWrapping="Wrap" Width="336" Height="145" IsReadOnly="True" Margin="95,10,0,0"  HorizontalAlignment="Left" VerticalAlignment="Top"/>
         <Button Name="StartButton" Content="Start" Margin="10,160,0,0" VerticalAlignment="Top" Width="80" Click="Button_Click2"/>
         <Label Name="StartLabel" Content="开始工作，这个框架暂时不支持键盘" HorizontalAlignment="Left" Margin="95,160,0,0" VerticalAlignment="Top" Height="31" Width="346" Foreground="#FFBBBBBB"/>
         <Image Name="ScreenImage" HorizontalAlignment="Left" Height="225" Margin="0,205,0,0" VerticalAlignment="Top" Width="433"/>
         <Button Content="合并通道" Margin="10,46,0,0" VerticalAlignment="Top" Click="Button_Click_1"/>
+        <Button Content="选择瞄准区位" Margin="436,10,0,0" VerticalAlignment="Top" Click="Button_Click_2"/>
+        <Canvas Background="#00000000" Margin="0,400,0,0" HorizontalAlignment="Center" VerticalAlignment="Bottom" Width="168" Height="58" Cursor="">
+            <ui:ProgressRing x:Name="ring" IsActive="True" Height="38" Width="38"  Visibility="Visible" HorizontalAlignment="Left" Canvas.Left="66"/>
+        </Canvas>
     </Grid>
+    </ui:ScrollViewerEx>
 </ui:Page>

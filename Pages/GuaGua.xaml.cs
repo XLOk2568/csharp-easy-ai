@@ -1,12 +1,17 @@
 ﻿using ILGPU;
 using ILGPU.Runtime;
 using ILGPU.Runtime.Cuda;
+//using ILGPU.Runtime.Cuda;
 using ILGPU.Runtime.OpenCL;
+using iNKORE.UI.WPF.Modern.Controls;
 using Microsoft.Win32;
+using ScreenCapturerNS;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -16,38 +21,35 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Documents;
+using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Windows.Devices.Lights;
+using Windows.Storage;
 using WindowsAPICodePack.Dialogs;
+using WPFtransformer.Pages.child;
 using MessageBox = iNKORE.UI.WPF.Modern.Controls.MessageBox;
 using Page = iNKORE.UI.WPF.Modern.Controls.Page;
 using Path = System.IO.Path;
+using PixelFormat = System.Drawing.Imaging.PixelFormat;
+using Rectangle = System.Drawing.Rectangle;
 
 namespace NavigationViewExample.Pages
 {
-    /// <summary>
-    /// Interaction logic for HomePage.xaml
-    /// </summary>
     public partial class GuaGua : Page
     {
-        // 私有字段：3 帧 Bitmap 缓冲、当前索引、定时器、屏幕尺寸
-        private const int BufferSize = 3;
-        private readonly Bitmap[] _bitmaps = new Bitmap[BufferSize];
-        private int _currentIndex;
-        private readonly int _screenWidth;
-        private readonly int _screenHeight;
-        private DispatcherTimer? _timer;// 将 _timer 字段声明为可为 null
         public GuaGua()
         {
             InitializeComponent();
-            _proc = HookCallback;//鼠标检测                       
-            _screenWidth = (int)SystemParameters.PrimaryScreenWidth;// 获取主屏幕尺寸
-            _screenHeight = (int)SystemParameters.PrimaryScreenHeight;
+            _proc = HookCallback;//鼠标检测                             
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;// 将 DLL 搜索路径设为程序运行目录 调用自己的C++库
+            SetDllDirectory(baseDir);
         }
         private string pathKeep2 = ""; // 用于存储选择的保存路径
         private async  void Button_Click(object sender, RoutedEventArgs e)
@@ -68,26 +70,23 @@ namespace NavigationViewExample.Pages
                 if (dialog2.ShowDialog() == CommonFileDialogResult.Ok)
                 {
                     pathKeep = dialog2.FileName;
-                    MessageBoxResult f1 = MessageBox.Show("确认:\n" + $"要处理的文件路径为{path}" + "\n" + $"要保存的文件路径为{pathKeep}", 
-                        "Are you sure?", 
-                        MessageBoxButton.OKCancel, 
-                        MessageBoxImage.Information);
+                    MessageBoxResult f1 = MessageBox.Show("确认:\n" + $"要处理的文件路径为{path}" + "\n" + $"要保存的文件路径为{pathKeep}","Are you sure?", MessageBoxButton.OKCancel, MessageBoxImage.Information);
                     if (f1 == MessageBoxResult.OK)
                     {     
                         pathKeep2 = pathKeep; // 保存选择的路径
+                        ring.Visibility = Visibility.Visible;
                         await ProcessImagesGpu(path,pathKeep);
                         MessageBox.Show($"CSV 文件已保存到: {pathKeep}", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
+                        ring.Visibility = Visibility.Collapsed;
                     }
                 }
             }
         }
-        // 替换所有 ILGPU.Index2 为 ILGPU.Index2D
-        // 替换 ProcessImagesGpu 方法中的 Bitmap、Rectangle、ImageLockMode、PixelFormat、Index2 用法
         private async Task ProcessImagesGpu(string srcFolder, string dstFolder)
         {
             Directory.CreateDirectory(dstFolder);
             var files = Directory.GetFiles(srcFolder, "*.*", SearchOption.AllDirectories).Where(f => new[] { ".png", ".jpg", ".bmp" }.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase)).ToArray();
-            using var context = Context.Create(builder => builder.Cuda());
+            using var context = Context.Create(builder => builder.OpenCL());
             var device = context.GetPreferredDevice(preferCPU: false);
             using var accelerator = device.CreateAccelerator(context);// 修正为 Index2D
             var kernel = accelerator.LoadAutoGroupedStreamKernel<ILGPU.Index2D, ArrayView<byte>,ArrayView<byte>,ArrayView<byte>,ArrayView<byte>,int,int>(ExtractKernel);
@@ -147,7 +146,6 @@ namespace NavigationViewExample.Pages
                 }
             });
         }
-        // 替换 ExtractKernel 方法签名中的 Index2
         public static void ExtractKernel(ILGPU.Index2D index,ArrayView<byte> pixelData,ArrayView<byte> rView,ArrayView<byte> gView,ArrayView<byte> bView,int width,int height)
         {
             int x = index.X, y = index.Y;
@@ -160,26 +158,38 @@ namespace NavigationViewExample.Pages
 
         private void Page_Loaded(object sender, RoutedEventArgs e)
         {
+            ring.Visibility = Visibility.Collapsed;
             informr.Text="请注意：\n" +
                 "1. 该功能需要安装 ILGPU 库和相应的 GPU 驱动。\n" +
                 "2. 请确保选择的文件夹中包含有效的图像文件（PNG、JPG、BMP）。\n" +
                 "3. 输出文件将保存为文本格式，每个通道的数据将分别存储在不同的文件中。\n" +
                 "4. 处理完成后，您可以在指定的输出文件夹中找到生成的文本文件。";
         }
-
         private void Button_Click2(object sender, RoutedEventArgs e)
         {
-            if (!_isRunning)
+            if (PCHW == 0)
+            {
+                _running = false;
+                PCHW = 1;
+            }
+            else
+            {
+                _running = true;
+                PCHW = 0;
+            }
+            if (_isRunning==false)
             {
                 _hookId = SetHook(_proc);
                 _isRunning = true;
                 StartButton.Content = "Stop";
+                PCHW = 1;
             }
             else
             {
                 UnhookWindowsHookEx(_hookId);
                 _isRunning = false;
                 StartButton.Content = "Start";
+                PCHW = 0;
             }
         }
         private bool _isRunning = false;// 运行状态标志
@@ -217,92 +227,57 @@ namespace NavigationViewExample.Pages
         private static extern IntPtr GetModuleHandle(string lpModuleName);
         private const int WH_MOUSE_LL = 14;
         private string CharacteristicPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Feature");//特征存储路径
-                                                                                                           //屏幕截获
-        private async void ButtonA_Click(object? sender, RoutedEventArgs? e)
+        private volatile bool _running = false;
+        private int CatchLeft = 1;
+        private int CatchTop = 1;
+        private int CatchWidth = 1;
+        private int CatchHeight =1;
+        //调用自己的C++库
+        [DllImport("kernel32.dll", SetLastError = true)]        // 在应用启动时设置 DLL 搜索路径
+        private static extern bool SetDllDirectory(string lpPathName);
+        // 原有 P/Invoke 声明
+        [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern bool CaptureFrame(int x, int y, int width, int height,out IntPtr buffer,out int outWidth,out int outHeight);
+        [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void FreeBuffer(IntPtr buffer);
+        private void ButtonA_Click(object? sender, RoutedEventArgs? e)//  屏幕截获
         {
-            if (_timer == null)
+            string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "data2.txt");
+            string content = File.ReadAllText(filePath);
+            string[] parts = content.Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);            
+            CatchLeft = (int)Convert.ToDouble(parts[4]);            
+            CatchTop = (int)Convert.ToDouble(parts[3]);
+            CatchWidth = (int)Convert.ToDouble(parts[1]);
+            CatchHeight = (int)Convert.ToDouble(parts[2]);
+            if (_running == false)
             {
-                // 第一次点击：创建 4 帧缓冲
-                for (int i = 0; i < BufferSize; i++)
-                {
-                    _bitmaps[i] = new Bitmap(
-                        _screenWidth,
-                        _screenHeight,
-                        System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                }
-
-                _timer = new DispatcherTimer
-                {
-                    Interval = TimeSpan.FromMilliseconds(100)
-                };
-                _timer.Tick += async (s, args) =>
-                {
-                    var bmp = _bitmaps[_currentIndex];
-
-                    // 1. 截图到 Bitmap
-                    await Task.Run(() =>
-                    {
-                        using (var g = Graphics.FromImage(bmp))
-                        {
-                            g.CopyFromScreen(
-                                0, 0,
-                                0, 0,
-                                new System.Drawing.Size(_screenWidth, _screenHeight),
-                                CopyPixelOperation.SourceCopy);
-                        }
-                    });
-                    // 2. 转成 WPF 可显示的 BitmapSource
-                    IntPtr hBmp = bmp.GetHbitmap();
-                    try
-                    {
-                        var src = Imaging.CreateBitmapSourceFromHBitmap(
-                            hBmp,
-                            IntPtr.Zero,
-                            Int32Rect.Empty,
-                            BitmapSizeOptions.FromEmptyOptions());
-                        ScreenImage.Source = src;
-                    }
-                    finally
-                    {
-                        DeleteObject(hBmp);
-                    }
-                    // 3. 循环复用下一个缓冲
-                    _currentIndex = (_currentIndex + 1) % BufferSize;
-                };
-                _timer.Start();
-                await Task.CompletedTask; // 添加 await，避免 CS1998 警告
+                Task.Run(CaptureLoopAsync);
+                _running = true;
             }
-            else
+            else { _running = false; }
+        }
+        private async Task CaptureLoopAsync()
+        {
+            while (_running == true && PCHW == 1)
             {
-                _timer.Stop();
-                _timer = null;
-                // 停止后，显示最后一帧
-                var lastBmp = _bitmaps[(_currentIndex + BufferSize - 1) % BufferSize];
-                if (lastBmp != null)
+                if (!CaptureFrame(CatchLeft, CatchTop, CatchWidth, CatchHeight, out IntPtr bufPtr, out int width, out int height))
                 {
-                    IntPtr hBmp = lastBmp.GetHbitmap();
-                    try
-                    {
-                        var src = Imaging.CreateBitmapSourceFromHBitmap(
-                            hBmp,
-                            IntPtr.Zero,
-                            Int32Rect.Empty,
-                            BitmapSizeOptions.FromEmptyOptions());
-                        ScreenImage.Source = src;
-                    }
-                    finally
-                    {
-                        DeleteObject(hBmp);
-                    }
+                    MessageBox.Show("Capture failed");
+                    return;
                 }
-                await Task.CompletedTask; // 添加 await，避免 CS1998 警告
+                int stride = width * 2;
+                int bufSize = height * stride;
+                var bmp = BitmapSource.Create(width, height, 96, 96,PixelFormats.Bgr565, null,bufPtr,bufSize, stride);
+                bmp.Freeze();
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    ScreenImage.Source = bmp;
+                });
+                FreeBuffer(bufPtr);
+                await Task.Delay(100);
             }
         }
-        // GDI 对象释放
-        [DllImport("gdi32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DeleteObject(IntPtr hObject);
-        private async void Button_Click_1(object sender, RoutedEventArgs e)
+        private async void Button_Click_1(object sender, RoutedEventArgs e)// 多通道合并
         {
             string path3 = ""; // 用于存储输入路径
             string path4 = ""; // 用于存储输出路径
@@ -313,91 +288,59 @@ namespace NavigationViewExample.Pages
             var dialog2 = new CommonOpenFileDialog { IsFolderPicker = true, Title = "选择输出文件夹" };
             if (dialog2.ShowDialog() == CommonFileDialogResult.Ok)
                 path4 = dialog2.FileName;
-            else return;
-            try
+            ring.Visibility = Visibility.Visible;
+            var rFiles = Directory.GetFiles(path3, "*R.txt");
+            var fileTriplets = rFiles.Select(r =>
             {
-                var rFiles = Directory.GetFiles(path3, "*R.txt", SearchOption.TopDirectoryOnly);
-                var gFiles = Directory.GetFiles(path3, "*G.txt", SearchOption.TopDirectoryOnly);
-                var bFiles = Directory.GetFiles(path3, "*B.txt", SearchOption.TopDirectoryOnly);
-                var fileTriplets = rFiles.Select(r =>
-                {
-                    string name = Path.GetFileNameWithoutExtension(r);
-                    string baseName = name.EndsWith("R") ? name[..^1] : name;
-                    string g = Path.Combine(path3, $"{baseName}G.txt");
-                    string b = Path.Combine(path3, $"{baseName}B.txt");
-                    return (baseName, r, g, b);
-                }).Where(t => File.Exists(t.g) && File.Exists(t.b)).ToList();
-                if (fileTriplets.Count == 0)
-                {
-                    MessageBox.Show("未找到有效的R/G/B通道文件组。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                var tasks = fileTriplets.Select(async triplet =>
-                {
-                    byte[] rArr = await ReadTxtToByteArray(triplet.r);
-                    byte[] gArr = await ReadTxtToByteArray(triplet.g);
-                    byte[] bArr = await ReadTxtToByteArray(triplet.b);
-                    return (triplet.baseName, rArr, gArr, bArr);
-                }).ToArray();
-                var allData = await Task.WhenAll(tasks);
-                int CPUTEMP23 = 200;
-                using var context = Context.Create(builder => builder.OpenCL());
-                var device = context.GetPreferredDevice(preferCPU: false);
-                using var accelerator = device.CreateAccelerator(context);
-                var kernel = accelerator.LoadAutoGroupedStreamKernel<ILGPU.Index1D, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>>(Conv1x1Kernel);
-                // 替换 Button_Click_1 方法中的 GPU 结果拷贝部分，确保不会越界
-                foreach (var (baseName, rArr, gArr, bArr) in allData)
-                {
-                    int len = Math.Min(rArr.Length, Math.Min(gArr.Length, bArr.Length));
-                    if (len == 0)
-                        continue;
-                    byte[] merged = new byte[len];
-                    int cpuCount = Math.Min(CPUTEMP23, len);
-                    for (int i = 0; i < cpuCount; i++)
-                    {
-                        merged[i] = (byte)((rArr[i] + gArr[i] + bArr[i]) / 3);
-                    }
-                    if (len > cpuCount)
-                    {
-                        int gpuLen = len - cpuCount;
-                        using var dR = accelerator.Allocate1D(rArr);
-                        using var dG = accelerator.Allocate1D(gArr);
-                        using var dB = accelerator.Allocate1D(bArr);
-                        using var dOut = accelerator.Allocate1D<byte>(len);
-                        kernel(
-                            new ILGPU.Index1D(gpuLen),
-                            dR.View.SubView(cpuCount, gpuLen),
-                            dG.View.SubView(cpuCount, gpuLen),
-                            dB.View.SubView(cpuCount, gpuLen),
-                            dOut.View.SubView(cpuCount, gpuLen)
-                        );
-                        accelerator.Synchronize();
-                        var gpuResult = dOut.GetAsArray1D();
-                        int copyLen = Math.Min(gpuResult.Length, merged.Length - cpuCount);
-                        Array.Copy(gpuResult, 0, merged, cpuCount, copyLen);
-                    }
-                    string outPath = Path.Combine(path4, $"{baseName}Merged.txt");
-                    int width = GetWidthFromTxt(fileTriplets.First(t => t.baseName == baseName).r);
-                    if (width <= 0) width = 1;
-                    using var sw = new StreamWriter(outPath);
-                    for (int i = 0; i < merged.Length; i++)
-                    {
-                        sw.Write(merged[i]);
-                        if ((i + 1) % width == 0)
-                            sw.WriteLine();
-                        else if (i != merged.Length - 1)
-                            sw.Write(',');
-                    }
-                }
-                MessageBox.Show("通道合并完成！", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
+                string name = Path.GetFileNameWithoutExtension(r);
+                string baseName = name.EndsWith("R") ? name[..^1] : name;
+                string g = Path.Combine(path3, $"{baseName}G.txt");
+                string b = Path.Combine(path3, $"{baseName}B.txt");
+                return (baseName, r, g, b);
+            }).Where(t => File.Exists(t.g) && File.Exists(t.b)).ToList();
+            if (fileTriplets.Count == 0)
             {
-                MessageBox.Show($"发生错误：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("未找到有效的R/G/B通道文件组。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
             }
+            using var context = Context.Create(builder => builder.OpenCL()); // or .Cuda()
+            var device = context.GetPreferredDevice(preferCPU: false);
+            using var accelerator = device.CreateAccelerator(context);
+            var kernel = accelerator.LoadAutoGroupedStreamKernel<ILGPU.Index1D, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>>(Conv1x1Kernel);
+            // 异步多线程处理每个通道组
+            var tasks = fileTriplets.Select(async triplet =>
+            {
+                var rArr = await ReadTxtToByteArray(triplet.r);
+                var gArr = await ReadTxtToByteArray(triplet.g);
+                var bArr = await ReadTxtToByteArray(triplet.b);
+                var merged = KernelCom(accelerator, kernel, rArr, gArr, bArr);
+                string outPath = Path.Combine(path4, $"{triplet.baseName}Merged.txt");
+                int width = GetWidthFromTxt(triplet.r);
+                if (width <= 0) width = 1;
+                using var sw = new StreamWriter(outPath);
+                for (int i = 0; i < merged.Length; i++)
+                {
+                    sw.Write(merged[i]);
+                    if ((i + 1) % width == 0)sw.WriteLine();
+                    else if (i != merged.Length - 1)sw.Write(',');
+                }
+            }).ToArray();
+            await Task.WhenAll(tasks);
+            MessageBox.Show("通道合并成功", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
+            ring.Visibility = Visibility.Collapsed;
         }
-        // 修正 ReadTxtToByteArray，跳过空字符串
-        private static async Task<byte[]> ReadTxtToByteArray(string path)
+        private static byte[] KernelCom(Accelerator accelerator,Action<ILGPU.Index1D, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>> kernel,byte[] rArr, byte[] gArr, byte[] bArr)// 1*1卷积核 算法
+        {      
+            int len = Math.Min(rArr.Length, Math.Min(gArr.Length, bArr.Length));  // 取三条通道数组长度的最小值，防止越界  
+            using var dR = accelerator.Allocate1D(rArr);                          // 在 GPU 上分配并拷贝 R 通道数据  
+            using var dG = accelerator.Allocate1D(gArr);                          // 在 GPU 上分配并拷贝 G 通道数据  
+            using var dB = accelerator.Allocate1D(bArr);                          // 在 GPU 上分配并拷贝 B 通道数据  
+            using var dOut = accelerator.Allocate1D<byte>(len);                   // 在 GPU 上分配输出数组，用于存放合并后的结果  
+            kernel(new ILGPU.Index1D(len), dR.View, dG.View, dB.View, dOut.View);  // 调用 1×1 卷积 kernel，按索引并行计算每个像素的平均值  
+            accelerator.Synchronize();                                            // 等待所有 GPU 线程完成计算  
+            return dOut.GetAsArray1D();                                           // 将合并结果从 GPU 拷回到 CPU 并返回  
+        }
+        private static async Task<byte[]> ReadTxtToByteArray(string path)        // 修正 ReadTxtToByteArray，跳过空字符串
         {
             var lines = await File.ReadAllLinesAsync(path);
             var list = new List<byte>();
@@ -410,19 +353,27 @@ namespace NavigationViewExample.Pages
             }
             return list.ToArray();
         }
-        // 获取txt宽度（即每行元素数）
-        private static int GetWidthFromTxt(string path)
+        private static int GetWidthFromTxt(string path)        // 获取txt宽度（即每行元素数）
         {
             using var sr = new StreamReader(path);
             string? line = sr.ReadLine();
             if (line == null) return 0;
             return line.Split(',').Length;
         }
-        // ILGPU 1x1卷积核（简单平均）
-        public static void Conv1x1Kernel(ILGPU.Index1D index, ArrayView<byte> r, ArrayView<byte> g, ArrayView<byte> b, ArrayView<byte> output)
+        public static void Conv1x1Kernel(ILGPU.Index1D index, ArrayView<byte> r, ArrayView<byte> g, ArrayView<byte> b, ArrayView<byte> output)        // ILGPU 1x1卷积核（简单平均）
         {
             int i = index;
             output[i] = (byte)((r[i] + g[i] + b[i]) / 3);
+        }
+        public static int PCHW = 0;// 打开选择识别的窗口，这个值0表示可以，1表示已经打开(防止重复开启)
+        private void Button_Click_2(object sender, RoutedEventArgs e)
+        {
+            if (PCHW == 0)
+            {
+                PCHW = 1;
+                var gauguachwWin = new GuaGuaCHW();
+                gauguachwWin.Show();
+            }
         }
     }
 }

@@ -20,9 +20,6 @@ using MessageBox = iNKORE.UI.WPF.Modern.Controls.MessageBox;
 using Page = iNKORE.UI.WPF.Modern.Controls.Page;
 using Path = System.IO.Path;
 using ILGPU.Runtime.OpenCL;
-using System.Reflection;
-using CSScripting;
-using CSScriptLib;
 
 namespace NavigationViewExample.Pages
 {
@@ -34,16 +31,6 @@ namespace NavigationViewExample.Pages
         public HomePage()
         {
             InitializeComponent();
-        }
-        private void Button_Click(object sender, RoutedEventArgs e)
-        {
-            string scriptPath = @"E:\homepage.cs"; // 文件路径
-            string code = File.ReadAllText(scriptPath); // 读取
-            Assembly asm = CSScriptLib.CSScript.Evaluator.CompileCode(code); // 运行
-            dynamic script = asm.CreateObject("*");
-            this.DataContext = script; // 绑定到 XAML
-            int result = script.Calculate(); // 调用方法
-            MessageBox.Show($"计算结果: {result}");
         }
     }
 }
