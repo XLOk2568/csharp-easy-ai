@@ -1,5 +1,6 @@
 ﻿using ILGPU;
 using ILGPU.Runtime;
+using ILGPU.Runtime.CPU;
 using ILGPU.Runtime.Cuda;
 //using ILGPU.Runtime.Cuda;
 using ILGPU.Runtime.OpenCL;
@@ -42,6 +43,10 @@ using Rectangle = System.Drawing.Rectangle;
 
 namespace NavigationViewExample.Pages
 {
+    using RGB3Byte = Byte;
+    // 常用类型别名
+    using RGB3Int = Int32;
+    using RGB3Ptr = IntPtr;
     public partial class GuaGua : Page
     {
         public GuaGua()
@@ -50,6 +55,7 @@ namespace NavigationViewExample.Pages
             _proc = HookCallback;//鼠标检测                             
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;// 将 DLL 搜索路径设为程序运行目录 调用自己的C++库
             SetDllDirectory(baseDir);
+            Unloaded += OnUnloaded;
         }
         private string pathKeep2 = ""; // 用于存储选择的保存路径
         private async  void Button_Click(object sender, RoutedEventArgs e)
@@ -374,6 +380,188 @@ namespace NavigationViewExample.Pages
                 var gauguachwWin = new GuaGuaCHW();
                 gauguachwWin.Show();
             }
+        }
+        // 截屏 DLL 导入  //处理
+        static class NativeMethods
+        {
+            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
+            public static extern bool CaptureFrame(
+                int x, int y, int width, int height,
+                out IntPtr pR, out IntPtr pG, out IntPtr pB,
+                out int w, out int h);
+
+            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
+            public static extern void FreeBuffer(IntPtr buffer);
+        }
+
+        // 模板类
+        class TemplateRGB3ToOne
+        {
+            public byte[] Data = new byte[0];
+            public int Width, Height;
+        }
+        Context _ctx=null!;
+        Accelerator _acc=null!;
+        Action<Index2D, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, int,ArrayView<byte>, int, int, ArrayView<float>> _gpuKernel = null!;
+        TemplateRGB3ToOne[] _templates = null!;
+        bool _runningRGB3ToOne;
+        string pathRGBOLD = @"C:\Templates\tpl_233x233.txt;C:\Templates\tpl_100x50.txt";
+        async void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            // 1. 初始化 ILGPU（不变）
+            _ctx = Context.Create(builder => builder.Cuda());
+            _acc = _ctx.GetPreferredDevice(false).CreateAccelerator(_ctx);
+            _gpuKernel = _acc.LoadAutoGroupedStreamKernel<
+                Index2D,
+                ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, int,
+                ArrayView<byte>, int, int, ArrayView<float>>(ILKernel);
+            // 2. 从 pathRGBOLD 加载 .txt 模板
+            var templates = new List<TemplateRGB3ToOne>();
+            foreach (var file in pathRGBOLD.Split(';'))
+            {
+                templates.Add(LoadTemplateFromTxt(file));
+            }
+            _templates = templates.ToArray();
+
+            // 3. 启动循环（不变）
+            _runningRGB3ToOne = true;
+            await Task.Run(Loop);
+
+        }
+        TemplateRGB3ToOne LoadTemplateFromTxt(string path)
+        {
+            // 文本格式判断
+            var fullText = File.ReadAllText(path);
+            if (fullText.Contains("\n"))
+            {
+                // 文本版
+                var lines = fullText
+                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                var wh = lines[0]
+                    .Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                int w = int.Parse(wh[0]), h = int.Parse(wh[1]);
+
+                var data = lines
+                    .Skip(1)
+                    .SelectMany(l => l
+                        .Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries))
+                    .Select(byte.Parse)
+                    .ToArray();
+
+                if (data.Length != w * h)
+                    throw new InvalidDataException($"{path} 中数据长度与 {w}×{h} 不符");
+
+                return new TemplateRGB3ToOne { Width = w, Height = h, Data = data };
+            }
+            else
+            {
+                // 二进制版
+                var data = File.ReadAllBytes(path);
+               // 从文件名 tpl_{W}x{H}.txt 提取尺寸
+                var name = Path.GetFileNameWithoutExtension(path);
+                // e.g. parts = ["tpl","233x233"]
+                var parts = name.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                var dims = parts[1].Split('x', StringSplitOptions.RemoveEmptyEntries);
+                int w = int.Parse(dims[0]), h = int.Parse(dims[1]);
+                if (data.Length != w * h)
+                    throw new InvalidDataException($"{path} 二进制长度与 {w}×{h} 不符");
+                return new TemplateRGB3ToOne { Width = w, Height = h, Data = data };
+            }
+        }
+        void OnUnloaded(object s, RoutedEventArgs e)
+        {
+            _runningRGB3ToOne = false;
+            _acc?.Dispose();
+            _ctx?.Dispose();
+        }
+        async Task Loop()
+        {
+            while (_runningRGB3ToOne)
+            {
+                if (!NativeMethods.CaptureFrame(0, 0, 1920, 1080,
+                    out var pR, out var pG, out var pB, out int W, out int H))
+                {
+                    await Task.Delay(100);
+                    continue;
+                }
+                int len = W * H;
+                var R = new byte[len];
+                var G = new byte[len];
+                var B = new byte[len];
+                Marshal.Copy(pR, R, 0, len);
+                Marshal.Copy(pG, G, 0, len);
+                Marshal.Copy(pB, B, 0, len);
+                NativeMethods.FreeBuffer(pR);
+                NativeMethods.FreeBuffer(pG);
+                NativeMethods.FreeBuffer(pB);
+                var (x, y, w, h) = KernelRGB3ToOne(R, G, B, W, H, _templates);                // 4. GPU 算法合一，返回最优匹配位置和大小
+                Console.WriteLine($"Match at ({x},{y}) size={w}×{h}");                // 这里你可以把 x,y,w,h 传给任何后续逻辑
+                await Task.Delay(100);
+            }
+        }
+
+        // 把所有逻辑合并到一个方法里
+        (int X, int Y, int W, int H) KernelRGB3ToOne(
+            byte[] R, byte[] G, byte[] B, int W, int H, TemplateRGB3ToOne[] templates)
+        {
+            // 申请输入缓存
+            using var dR = _acc.Allocate1D(R);
+            using var dG = _acc.Allocate1D(G);
+            using var dB = _acc.Allocate1D(B);
+
+            int bestX = 0, bestY = 0, bestW = 0, bestH = 0;
+            float bestScore = float.MaxValue;
+
+            foreach (var tpl in templates)
+            {
+                int ow = W - tpl.Width + 1;
+                int oh = H - tpl.Height + 1;
+                using var dTpl = _acc.Allocate1D(tpl.Data);
+                using var dScores = _acc.Allocate1D<float>(ow * oh);
+
+                // 调用 GPU Kernel
+                _gpuKernel((oh, ow), dR.View, dG.View, dB.View, W,
+                           dTpl.View, tpl.Width, tpl.Height, dScores.View);
+                _acc.Synchronize();
+
+                var scores = dScores.GetAsArray1D();
+                for (int i = 0; i < scores.Length; i++)
+                {
+                    if (scores[i] < bestScore)
+                    {
+                        bestScore = scores[i];
+                        bestX = i % ow;
+                        bestY = i / ow;
+                        bestW = tpl.Width;
+                        bestH = tpl.Height;
+                    }
+                }
+            }
+
+            return (bestX, bestY, bestW, bestH);
+        }
+
+        // GPU 上把 RGB 三通道先算平均再做模板平方差
+        static void ILKernel(
+            Index2D idx,
+            ArrayView<byte> r, ArrayView<byte> g, ArrayView<byte> b, int width,
+            ArrayView<byte> tpl, int tw, int th,
+            ArrayView<float> scores)
+        {
+            int y = idx.X, x = idx.Y;
+            float sum = 0;
+            for (int dy = 0; dy < th; dy++)
+            {
+                int baseBig = (y + dy) * width + x;
+                int baseTpl = dy * tw;
+                for (int dx = 0; dx < tw; dx++)
+                {
+                    byte avg = (byte)((r[baseBig + dx] + g[baseBig + dx] + b[baseBig + dx]) / 3);
+                    float diff = avg - tpl[baseTpl + dx];
+                    sum += diff * diff;
+                }
+            }
+            scores[y * (width - tw + 1) + x] = sum;
         }
     }
 }
