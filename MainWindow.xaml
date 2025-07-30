@@ -8,7 +8,7 @@
         mc:Ignorable="d"
         ui:WindowHelper.UseModernWindowStyle="True" 
         ui:WindowHelper.SystemBackdropType="Mica"
-        Title="MainWindow" 
+        Title="WPFtransformer"
         Loaded="Window_Loaded" Closing="_Closing" Height="365" Width="753">
     <Grid >
         <ui:Frame x:Name="Frame_Main_MainNv" Margin="0,0,0,0"/>

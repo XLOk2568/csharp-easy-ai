@@ -4,6 +4,7 @@ using System.Data;
 using System.Diagnostics;
 using System.IO;
 using System.Net.NetworkInformation;
+using System.Security.Principal;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,6 +17,7 @@ using System.Windows.Navigation;
 using System.Windows.Shapes;
 using MessageBox = iNKORE.UI.WPF.Modern.Controls.MessageBox;
 using Page = iNKORE.UI.WPF.Modern.Controls.Page;
+using Path = System.IO.Path;
 
 namespace NavigationViewExample
 {
@@ -24,21 +26,24 @@ namespace NavigationViewExample
     /// </summary>
     public partial class MainWindow : Window
     {
-        //setting.txt
-        //749,1266,258,123${@}dark${@}CN${@}firsttime,newtime${@}playtime,palyalist
-        public int setting_homelist_count = 0;
         public MainWindow()
         {
-            InitializeComponent();
+            if (!IsRunAsAdministrator())// 权限检查
+            {
+                RelaunchAsAdministrator();
+                Application.Current.Shutdown();
+                return;
+            }
+            InitializeComponent();// 真正的初始化
         }
         public Pages.MainNvPage PageNv_Load= new Pages.MainNvPage();
+        public static string writeText = "//屏幕_121_222_333_444_";
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             //先检测是否存在屏幕，位置的文件夹
             string folderName = "Appdata";
             string folderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, folderName);
             string filePath = System.IO.Path.Combine(folderPath, "data.txt");
-            string writeText = "//屏幕_121_222_333_444_";
             if (!System.IO.Directory.Exists(folderPath))
             {
                 System.IO.Directory.CreateDirectory(folderPath);                // 获取当前程序运行目录
@@ -88,6 +93,36 @@ namespace NavigationViewExample
             else
             {
                 e.Cancel = true;
+            }
+        }
+        private bool IsRunAsAdministrator()// 检查当前进程是否以管理员身份运行
+        {
+            var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+        private void RelaunchAsAdministrator()
+        {
+            var exePath = Process.GetCurrentProcess().MainModule?.FileName;
+            if (exePath != null)
+            {
+                var startInfo = new ProcessStartInfo(exePath)
+                {
+                    UseShellExecute = true,
+                    Verb = "runas"
+                };
+                try
+                {
+                    Process.Start(startInfo);
+                }
+                catch
+                {
+                    MessageBox.Show("请以管理员身份运行!!!", "!", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            else
+            {
+                MessageBox.Show("无法检测权限状况,\n请谨慎运行", "!", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
     }
