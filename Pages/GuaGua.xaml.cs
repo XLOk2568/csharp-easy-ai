@@ -6,7 +6,6 @@ using ILGPU.Runtime.Cuda;
 using ILGPU.Runtime.OpenCL;
 using iNKORE.UI.WPF.Modern.Controls;
 using Microsoft.Win32;
-using ScreenCapturerNS;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -55,7 +54,8 @@ namespace NavigationViewExample.Pages
             _proc = HookCallback;//鼠标检测                             
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;// 将 DLL 搜索路径设为程序运行目录 调用自己的C++库
             SetDllDirectory(baseDir);
-            Unloaded += OnUnloaded;
+            //OnLoaded;//启动的
+            //OnUnloaded;
         }
         private string pathKeep2 = ""; // 用于存储选择的保存路径
         private async  void Button_Click(object sender, RoutedEventArgs e)
@@ -165,22 +165,42 @@ namespace NavigationViewExample.Pages
         private void Page_Loaded(object sender, RoutedEventArgs e)
         {
             ring.Visibility = Visibility.Collapsed;
-            informr.Text="请注意：\n" +
-                "1. 该功能需要安装 ILGPU 库和相应的 GPU 驱动。\n" +
-                "2. 请确保选择的文件夹中包含有效的图像文件（PNG、JPG、BMP）。\n" +
-                "3. 输出文件将保存为文本格式，每个通道的数据将分别存储在不同的文件中。\n" +
-                "4. 处理完成后，您可以在指定的输出文件夹中找到生成的文本文件。";
+            informr.Text="请注意：\n1. 该功能需要安装 ILGPU 库和相应的 GPU 驱动。\n2. 请确保选择的文件夹中包含有效的图像文件（PNG、JPG、BMP）。\n3. 输出文件将保存为文本格式，每个通道的数据将分别存储在不同的文件中。\n4. 处理完成后，您可以在指定的输出文件夹中找到生成的文本文件。";
+            OffOnLabel.Content = "是否显示处理\n的画面预览";
+            string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
+            string content = "On";
+            if (!File.Exists(filePathImage))
+            {
+                File.WriteAllText(filePathImage, "On");
+                OffOn.Source = null;
+                OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
+            }
+            else
+            {
+                content = File.ReadAllText(filePathImage);
+                if (content == "On")
+                {
+                    OffOn.Source = null;
+                    OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
+                }
+                else if (content == "Off")
+                {
+                    OffOn.Source = null;
+                    OffOn.Source = new BitmapImage(new Uri("/PNG/Off.png", UriKind.Relative));
+                }
+                else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
+            }
         }
         private void Button_Click2(object sender, RoutedEventArgs e)
         {
             if (PCHW == 0)
             {
-                _running = false;
+                _runningimage = false;
                 PCHW = 1;
             }
             else
             {
-                _running = true;
+                _runningimage = true;
                 PCHW = 0;
             }
             if (_isRunning==false)
@@ -233,7 +253,7 @@ namespace NavigationViewExample.Pages
         private static extern IntPtr GetModuleHandle(string lpModuleName);
         private const int WH_MOUSE_LL = 14;
         private string CharacteristicPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Feature");//特征存储路径
-        private volatile bool _running = false;
+        private volatile bool _runningimage = false;
         private int CatchLeft = 1;
         private int CatchTop = 1;
         private int CatchWidth = 1;
@@ -255,16 +275,37 @@ namespace NavigationViewExample.Pages
             CatchTop = (int)Convert.ToDouble(parts[3]);
             CatchWidth = (int)Convert.ToDouble(parts[1]);
             CatchHeight = (int)Convert.ToDouble(parts[2]);
-            if (_running == false)
+            if (_runningimage == false)
             {
                 Task.Run(CaptureLoopAsync);
-                _running = true;
+                _runningimage = true;
             }
-            else { _running = false; }
+            else { _runningimage = false; }
         }
         private async Task CaptureLoopAsync()
         {
-            while (_running == true && PCHW == 1)
+            string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
+            string content = "On";
+             int ImageOnOrOff = 0;
+            if (!File.Exists(filePathImage))
+            {
+                File.WriteAllText(filePathImage, "On");
+                ImageOnOrOff = 1;
+            }
+            else
+            {
+                content = File.ReadAllText(filePathImage);
+                if (content == "On")
+                {
+                    ImageOnOrOff = 1;
+                }
+                else if (content == "Off")
+                {
+                    ImageOnOrOff = 0;
+                }
+                else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
+            }
+            while (_runningimage == true && PCHW == 1&& ImageOnOrOff==1)
             {
                 if (!CaptureFrame(CatchLeft, CatchTop, CatchWidth, CatchHeight, out IntPtr bufPtr, out int width, out int height))
                 {
@@ -381,21 +422,16 @@ namespace NavigationViewExample.Pages
                 gauguachwWin.Show();
             }
         }
+        //  RGB三色合并单(调用自己封装的库)，在 GPU 上进行模板匹配(读取本地的特征数据的文件夹)，然后输出最匹配位置和大小
         // 截屏 DLL 导入  //处理
         static class NativeMethods
         {
-            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
-            public static extern bool CaptureFrame(
-                int x, int y, int width, int height,
-                out IntPtr pR, out IntPtr pG, out IntPtr pB,
-                out int w, out int h);
-
-            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
-            public static extern void FreeBuffer(IntPtr buffer);
+            [DllImport("CatchRGB3.dll", CallingConvention = CallingConvention.Cdecl)]
+            public static extern bool CaptureFrame(int x, int y, int width, int height,out IntPtr pR, out IntPtr pG, out IntPtr pB,out int w, out int h);
+            [DllImport("CatchRGB3.dll", CallingConvention = CallingConvention.Cdecl)]
+            public static extern void FreeBufferRGB(IntPtr buffer);// 缓冲
         }
-
-        // 模板类
-        class TemplateRGB3ToOne
+        class TemplateRGB3ToOne        // 定义一个 模板 类
         {
             public byte[] Data = new byte[0];
             public int Width, Height;
@@ -405,33 +441,25 @@ namespace NavigationViewExample.Pages
         Action<Index2D, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, int,ArrayView<byte>, int, int, ArrayView<float>> _gpuKernel = null!;
         TemplateRGB3ToOne[] _templates = null!;
         bool _runningRGB3ToOne;
-        string pathRGBOLD = @"C:\Templates\tpl_233x233.txt;C:\Templates\tpl_100x50.txt";
+        string pathRGBOLD = @"C:\Templates\tpl_233x233.txt;C:\Templates\tpl_100x50.txt";// 遍历文本
         async void OnLoaded(object sender, RoutedEventArgs e)
         {
-            // 1. 初始化 ILGPU（不变）
-            _ctx = Context.Create(builder => builder.Cuda());
+            _ctx = Context.Create(builder => builder.Cuda());            // 1. 初始化 ILGPU
             _acc = _ctx.GetPreferredDevice(false).CreateAccelerator(_ctx);
-            _gpuKernel = _acc.LoadAutoGroupedStreamKernel<
-                Index2D,
-                ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, int,
-                ArrayView<byte>, int, int, ArrayView<float>>(ILKernel);
-            // 2. 从 pathRGBOLD 加载 .txt 模板
-            var templates = new List<TemplateRGB3ToOne>();
+            _gpuKernel = _acc.LoadAutoGroupedStreamKernel<Index2D,ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, int,ArrayView<byte>, int, int, ArrayView<float>>(ILKernel);
+            var templates = new List<TemplateRGB3ToOne>();            // 2. 从 pathRGBOLD 加载 .txt 的 特征模板
             foreach (var file in pathRGBOLD.Split(';'))
             {
                 templates.Add(LoadTemplateFromTxt(file));
             }
             _templates = templates.ToArray();
-
             // 3. 启动循环（不变）
             _runningRGB3ToOne = true;
             await Task.Run(Loop);
-
         }
         TemplateRGB3ToOne LoadTemplateFromTxt(string path)
         {
-            // 文本格式判断
-            var fullText = File.ReadAllText(path);
+            var fullText = File.ReadAllText(path);            // 文本格式判断
             if (fullText.Contains("\n"))
             {
                 // 文本版
@@ -440,26 +468,20 @@ namespace NavigationViewExample.Pages
                 var wh = lines[0]
                     .Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries);
                 int w = int.Parse(wh[0]), h = int.Parse(wh[1]);
-
                 var data = lines
                     .Skip(1)
                     .SelectMany(l => l
                         .Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries))
                     .Select(byte.Parse)
                     .ToArray();
-
                 if (data.Length != w * h)
                     throw new InvalidDataException($"{path} 中数据长度与 {w}×{h} 不符");
-
                 return new TemplateRGB3ToOne { Width = w, Height = h, Data = data };
             }
             else
             {
-                // 二进制版
                 var data = File.ReadAllBytes(path);
-               // 从文件名 tpl_{W}x{H}.txt 提取尺寸
-                var name = Path.GetFileNameWithoutExtension(path);
-                // e.g. parts = ["tpl","233x233"]
+                var name = Path.GetFileNameWithoutExtension(path);               // 从文件名 tpl_{W}x{H}.txt 提取尺寸
                 var parts = name.Split('_', StringSplitOptions.RemoveEmptyEntries);
                 var dims = parts[1].Split('x', StringSplitOptions.RemoveEmptyEntries);
                 int w = int.Parse(dims[0]), h = int.Parse(dims[1]);
@@ -474,12 +496,11 @@ namespace NavigationViewExample.Pages
             _acc?.Dispose();
             _ctx?.Dispose();
         }
-        async Task Loop()
+        async Task Loop()//  总调用  (哥们别说我写的不好，我一文科生做这些已经快吐血了)
         {
-            while (_runningRGB3ToOne)
+            while (_runningRGB3ToOne==true)
             {
-                if (!NativeMethods.CaptureFrame(0, 0, 1920, 1080,
-                    out var pR, out var pG, out var pB, out int W, out int H))
+                if (!NativeMethods.CaptureFrame(CatchLeft, CatchTop, CatchWidth, CatchHeight,out var pR, out var pG, out var pB, out int W, out int H)) //
                 {
                     await Task.Delay(100);
                     continue;
@@ -491,62 +512,41 @@ namespace NavigationViewExample.Pages
                 Marshal.Copy(pR, R, 0, len);
                 Marshal.Copy(pG, G, 0, len);
                 Marshal.Copy(pB, B, 0, len);
-                NativeMethods.FreeBuffer(pR);
-                NativeMethods.FreeBuffer(pG);
-                NativeMethods.FreeBuffer(pB);
+                NativeMethods.FreeBufferRGB(pR);
+                NativeMethods.FreeBufferRGB(pG);
+                NativeMethods.FreeBufferRGB(pB);
                 var (x, y, w, h) = KernelRGB3ToOne(R, G, B, W, H, _templates);                // 4. GPU 算法合一，返回最优匹配位置和大小
-                Console.WriteLine($"Match at ({x},{y}) size={w}×{h}");                // 这里你可以把 x,y,w,h 传给任何后续逻辑
+                Console.WriteLine($"Match at ({x},{y}) size={w}×{h}");                //   返回   2  这里你可以把 x,y,w,h 传给任何后续逻辑
                 await Task.Delay(100);
             }
         }
-
-        // 把所有逻辑合并到一个方法里
-        (int X, int Y, int W, int H) KernelRGB3ToOne(
-            byte[] R, byte[] G, byte[] B, int W, int H, TemplateRGB3ToOne[] templates)
+        (int X, int Y, int W, int H) KernelRGB3ToOne(byte[] R, byte[] G, byte[] B, int W, int H, TemplateRGB3ToOne[] templates)
         {
-            // 申请输入缓存
-            using var dR = _acc.Allocate1D(R);
+            using var dR = _acc.Allocate1D(R);            // 输入缓存
             using var dG = _acc.Allocate1D(G);
             using var dB = _acc.Allocate1D(B);
-
             int bestX = 0, bestY = 0, bestW = 0, bestH = 0;
             float bestScore = float.MaxValue;
-
             foreach (var tpl in templates)
             {
                 int ow = W - tpl.Width + 1;
                 int oh = H - tpl.Height + 1;
                 using var dTpl = _acc.Allocate1D(tpl.Data);
                 using var dScores = _acc.Allocate1D<float>(ow * oh);
-
-                // 调用 GPU Kernel
-                _gpuKernel((oh, ow), dR.View, dG.View, dB.View, W,
-                           dTpl.View, tpl.Width, tpl.Height, dScores.View);
+                _gpuKernel((oh, ow), dR.View, dG.View, dB.View, W,dTpl.View, tpl.Width, tpl.Height, dScores.View);                // 调用 GPU Kernel  移动到了410行 便维护
                 _acc.Synchronize();
-
                 var scores = dScores.GetAsArray1D();
                 for (int i = 0; i < scores.Length; i++)
                 {
                     if (scores[i] < bestScore)
                     {
-                        bestScore = scores[i];
-                        bestX = i % ow;
-                        bestY = i / ow;
-                        bestW = tpl.Width;
-                        bestH = tpl.Height;
+                        bestScore = scores[i];bestX = i % ow;bestY = i / ow;bestW = tpl.Width;bestH = tpl.Height;
                     }
                 }
             }
-
-            return (bestX, bestY, bestW, bestH);
+            return (bestX, bestY, bestW, bestH);  //  1  返回
         }
-
-        // GPU 上把 RGB 三通道先算平均再做模板平方差
-        static void ILKernel(
-            Index2D idx,
-            ArrayView<byte> r, ArrayView<byte> g, ArrayView<byte> b, int width,
-            ArrayView<byte> tpl, int tw, int th,
-            ArrayView<float> scores)
+        static void ILKernel(Index2D idx,ArrayView<byte> r, ArrayView<byte> g, ArrayView<byte> b, int width,ArrayView<byte> tpl, int tw, int th,ArrayView<float> scores)        // GPU 上把 RGB 三通道先算平均再做模板平方差
         {
             int y = idx.X, x = idx.Y;
             float sum = 0;
@@ -562,6 +562,34 @@ namespace NavigationViewExample.Pages
                 }
             }
             scores[y * (width - tw + 1) + x] = sum;
+        }
+        private void Button_Click_3(object sender, RoutedEventArgs e)
+        {
+            string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
+            string content = "On";
+            if (!File.Exists(filePathImage))
+            {
+                File.WriteAllText(filePathImage, "On");
+                OffOn.Source = null;
+                OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
+            }
+            else
+            {
+                content = File.ReadAllText(filePathImage);
+                if (content == "On")
+                {
+                    File.WriteAllText(filePathImage, "Off");
+                    OffOn.Source = null;
+                    OffOn.Source = new BitmapImage(new Uri("/PNG/Off.png", UriKind.Relative));
+                }
+                else if (content == "Off")
+                {
+                    File.WriteAllText(filePathImage, "On");
+                    OffOn.Source = null;
+                    OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
+                }
+                else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
+            }
         }
     }
 }

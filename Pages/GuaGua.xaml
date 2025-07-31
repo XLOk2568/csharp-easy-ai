@@ -1,25 +1,29 @@
-﻿<ui:Page x:Class="NavigationViewExample.Pages.GuaGua"
+﻿<ui:Page
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
       xmlns:local="clr-namespace:NavigationViewExample.Pages"
       xmlns:ui="http://schemas.inkore.net/lib/ui/wpf/modern"
+      xmlns:ikw="http://schemas.inkore.net/lib/ui/wpf" x:Class="NavigationViewExample.Pages.GuaGua"
       mc:Ignorable="d" 
       d:DesignHeight="450" d:DesignWidth="800"
       Title="KLBQ_CNN_GG" Loaded="Page_Loaded" >
     <ui:ScrollViewerEx VerticalScrollBarVisibility="Visible" >
         <Grid >
-        <Button Content="特征选择" Margin="10,10,0,0" VerticalAlignment="Top" Click="Button_Click"/>
-        <TextBox x:Name="informr" TextWrapping="Wrap" Width="336" Height="145" IsReadOnly="True" Margin="95,10,0,0"  HorizontalAlignment="Left" VerticalAlignment="Top"/>
-        <Button Name="StartButton" Content="Start" Margin="10,160,0,0" VerticalAlignment="Top" Width="80" Click="Button_Click2"/>
-        <Label Name="StartLabel" Content="开始工作，这个框架暂时不支持键盘" HorizontalAlignment="Left" Margin="95,160,0,0" VerticalAlignment="Top" Height="31" Width="346" Foreground="#FFBBBBBB"/>
-        <Image Name="ScreenImage" HorizontalAlignment="Left" Height="225" Margin="0,205,0,0" VerticalAlignment="Top" Width="433"/>
-        <Button Content="合并通道" Margin="10,46,0,0" VerticalAlignment="Top" Click="Button_Click_1"/>
-        <Button Content="选择瞄准区位" Margin="436,10,0,0" VerticalAlignment="Top" Click="Button_Click_2"/>
-        <Canvas Background="#00000000" Margin="0,400,0,0" HorizontalAlignment="Center" VerticalAlignment="Bottom" Width="168" Height="58" Cursor="">
-            <ui:ProgressRing x:Name="ring" IsActive="True" Height="38" Width="38"  Visibility="Visible" HorizontalAlignment="Left" Canvas.Left="66"/>
-        </Canvas>
-    </Grid>
+            <Button Content="特征选择" Margin="10,10,0,0" VerticalAlignment="Top" Click="Button_Click"/>
+            <TextBox x:Name="informr" TextWrapping="Wrap" Width="336" Height="145" IsReadOnly="True" Margin="95,10,0,0"  HorizontalAlignment="Left" VerticalAlignment="Top"/>
+            <Button x:Name="StartButton" Content="Start" Margin="10,160,0,0" VerticalAlignment="Top" Width="80" Click="Button_Click2"/>
+            <Label x:Name="StartLabel" Content="显示预览开关  开始工作，这个框架暂时不支持键盘" HorizontalAlignment="Left" Margin="253,160,0,0" VerticalAlignment="Top" Height="31" Width="330" Foreground="#FFBBBBBB"/>
+            <Image x:Name="ScreenImage" HorizontalAlignment="Left" Height="225" Margin="0,205,0,0" VerticalAlignment="Top" Width="433"/>
+            <Button Content="合并通道" Margin="10,46,0,0" VerticalAlignment="Top" Click="Button_Click_1"/>
+            <Button Content="选择瞄准区位" Margin="436,10,0,0" VerticalAlignment="Top" Click="Button_Click_2"/>
+            <Canvas Margin="0,400,0,0" HorizontalAlignment="Center" VerticalAlignment="Bottom" Width="168" Height="58" Cursor="">
+                <ui:ProgressRing x:Name="ring" IsActive="True" Height="38" Width="38"  Visibility="Visible" HorizontalAlignment="Left" Canvas.Left="66"/>
+            </Canvas>
+            <Image x:Name="OffOn" HorizontalAlignment="Left" Height="21" Margin="105,168,0,0" VerticalAlignment="Top" Width="50" Source="/PNG/On.png"/>
+            <Label Name="OffOnLabel"  Margin="157,165,582,264" Foreground="#FFBBBBBB" FontSize="10" />
+            <Button Click="Button_Click_3" Margin="100,162,0,0" VerticalAlignment="Top" Background="#0000" Height="32" Width="128"/>
+        </Grid>
     </ui:ScrollViewerEx>
 </ui:Page>
