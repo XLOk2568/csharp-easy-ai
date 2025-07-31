@@ -23,9 +23,6 @@
 [iNKORE.UI.WPF.Modern](https://github.com/iNKORE-NET/UI.WPF.Modern/)(现代化UI)
 
 
-[UpdateD](https://github.com/YUXUAN888/UpdateD)(用于更新，本项目上改成了使用http的方法使用)
-
-
 [CS-Script](https://github.com/oleg-shilo/cs-script)(用于运行C#脚本，以便于ai自动学习改进自己)
 
 
