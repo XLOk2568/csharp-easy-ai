@@ -1,8 +1,6 @@
 ﻿using ILGPU;
 using ILGPU.Runtime;
 using ILGPU.Runtime.CPU;
-using ILGPU.Runtime.Cuda;
-//using ILGPU.Runtime.Cuda;
 using ILGPU.Runtime.OpenCL;
 using iNKORE.UI.WPF.Modern.Controls;
 using Microsoft.Win32;
@@ -167,8 +165,8 @@ namespace NavigationViewExample.Pages
             ring.Visibility = Visibility.Collapsed;
             informr.Text="请注意：\n1. 该功能需要安装 ILGPU 库和相应的 GPU 驱动。\n2. 请确保选择的文件夹中包含有效的图像文件（PNG、JPG、BMP）。\n3. 输出文件将保存为文本格式，每个通道的数据将分别存储在不同的文件中。\n4. 处理完成后，您可以在指定的输出文件夹中找到生成的文本文件。";
             OffOnLabel.Content = "是否显示处理\n的画面预览";
+            UserCLabel.Content = "选择自己的特征文件夹\n(非必要请保持默认)";
             string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
-            string content = "On";
             if (!File.Exists(filePathImage))
             {
                 File.WriteAllText(filePathImage, "On");
@@ -176,7 +174,8 @@ namespace NavigationViewExample.Pages
                 OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
             }
             else
-            {
+            {            
+                string content = "On";
                 content = File.ReadAllText(filePathImage);
                 if (content == "On")
                 {
@@ -189,6 +188,20 @@ namespace NavigationViewExample.Pages
                     OffOn.Source = new BitmapImage(new Uri("/PNG/Off.png", UriKind.Relative));
                 }
                 else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
+            }
+            FeaturesFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "FeaturesFolder.txt");//  这是存储着有 总 特征文件夹 信息 的，字符串 的文件  //这里先拿来存储看看  文件是否存在  ，之后再写入具体的文件夹路径
+            if (!File.Exists(FeaturesFolder))
+            {
+                File.WriteAllText(FeaturesFolder, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FeaturesFolder"));
+                FeaturesFolder = File.ReadAllText(FeaturesFolder);
+            }
+            else 
+            {
+                FeaturesFolder = File.ReadAllText(FeaturesFolder);
+            }
+            if (!System.IO.Directory.Exists(FeaturesFolder))
+            {
+                MessageBox.Show("特征路径不存在!!!", "!", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         private void Button_Click2(object sender, RoutedEventArgs e)
@@ -228,15 +241,24 @@ namespace NavigationViewExample.Pages
             string moduleName = curModule?.ModuleName ?? string.Empty;
             return SetWindowsHookEx(WH_MOUSE_LL, proc,GetModuleHandle(moduleName),0);
         }
-        private long beat = 0;// 记录点击次数191
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)//3钩子回调：捕获 WM_RBUTTONDOWN 则触发 Running 逻辑
         {
             const int WM_RBUTTONDOWN = 0x0204;
             if (nCode >= 0 && wParam == (IntPtr)WM_RBUTTONDOWN)
             {
-                beat++;//暂时自定义191
-                StartLabel.Content= $"Running: {beat} times";
-                ButtonA_Click(null, null);//调用截图方法
+                string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "data2.txt");
+                string content = File.ReadAllText(filePath);
+                string[] parts = content.Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
+                CatchLeft = (int)Convert.ToDouble(parts[4]);
+                CatchTop = (int)Convert.ToDouble(parts[3]);
+                CatchWidth = (int)Convert.ToDouble(parts[1]);
+                CatchHeight = (int)Convert.ToDouble(parts[2]);
+                if (_runningimage == false)
+                {
+                    Task.Run(CaptureLoopAsync);
+                    _runningimage = true;
+                }
+                else { _runningimage = false; }
                 //Application.Current.Dispatcher.Invoke(…);//切换到UI线程
             }
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
@@ -266,23 +288,7 @@ namespace NavigationViewExample.Pages
         private static extern bool CaptureFrame(int x, int y, int width, int height,out IntPtr buffer,out int outWidth,out int outHeight);
         [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void FreeBuffer(IntPtr buffer);
-        private void ButtonA_Click(object? sender, RoutedEventArgs? e)//  屏幕截获
-        {
-            string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "data2.txt");
-            string content = File.ReadAllText(filePath);
-            string[] parts = content.Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);            
-            CatchLeft = (int)Convert.ToDouble(parts[4]);            
-            CatchTop = (int)Convert.ToDouble(parts[3]);
-            CatchWidth = (int)Convert.ToDouble(parts[1]);
-            CatchHeight = (int)Convert.ToDouble(parts[2]);
-            if (_runningimage == false)
-            {
-                Task.Run(CaptureLoopAsync);
-                _runningimage = true;
-            }
-            else { _runningimage = false; }
-        }
-        private async Task CaptureLoopAsync()
+        private async Task CaptureLoopAsync()//截图实现
         {
             string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
             string content = "On";
@@ -444,11 +450,11 @@ namespace NavigationViewExample.Pages
         string pathRGBOLD = @"C:\Templates\tpl_233x233.txt;C:\Templates\tpl_100x50.txt";// 遍历文本
         async void OnLoaded(object sender, RoutedEventArgs e)
         {
-            _ctx = Context.Create(builder => builder.Cuda());            // 1. 初始化 ILGPU
+            _ctx = Context.Create(builder => builder.OpenCL());            // 1. 初始化 ILGPU
             _acc = _ctx.GetPreferredDevice(false).CreateAccelerator(_ctx);
             _gpuKernel = _acc.LoadAutoGroupedStreamKernel<Index2D,ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, int,ArrayView<byte>, int, int, ArrayView<float>>(ILKernel);
             var templates = new List<TemplateRGB3ToOne>();            // 2. 从 pathRGBOLD 加载 .txt 的 特征模板
-            foreach (var file in pathRGBOLD.Split(';'))
+            foreach (var file in pathRGBOLD.Split(';', StringSplitOptions.RemoveEmptyEntries))
             {
                 templates.Add(LoadTemplateFromTxt(file));
             }
@@ -589,6 +595,22 @@ namespace NavigationViewExample.Pages
                     OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
                 }
                 else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
+            }
+        }
+        private string FeaturesFolder = null!;
+        private void Button_Click_4(object sender, RoutedEventArgs e)
+        {
+            var folderDialog = new CommonOpenFileDialog
+            {
+                IsFolderPicker = true
+            };
+            if (folderDialog.ShowDialog() == CommonFileDialogResult.Ok)
+            {
+                var files = Directory.GetFiles(folderDialog.FileName, "*.txt");
+                pathRGBOLD = string.Join(";", files);
+                string FFTPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "FeaturesFolder.txt");
+                File.WriteAllText(FFTPath, folderDialog.FileName);
+                FeaturesFolder = File.ReadAllText(FFTPath);
             }
         }
     }
