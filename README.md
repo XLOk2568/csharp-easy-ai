@@ -29,8 +29,13 @@
 [CommonFileDialogs.Wpf](https://github.com/leisn/CommonFileDialogs.Wpf)(用于wpf使用Windows通用文件对话框)
 
 
+### 这些项目是本人的其他项目(基于C++)
+
+
 [ScreenCaptureWpfEasy](https://github.com/XLOk2568/ScreenCaptureWpfEasy)(用于wpf通过GDI捕获用户的显示)
 
+
+[MouseMovementWin32ConvenienceLibrar](https://github.com/XLOk2568/MouseMovementWin32ConvenienceLibrary)(用于wpf鼠标移动)
 
 
 ## 开发进度/日志
