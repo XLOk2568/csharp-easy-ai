@@ -1,4 +1,4 @@
-// pch.cpp — CatchRGB3 (C++20) VS2022 //提醒自己这代码的环境
+﻿// pch.cpp — CatchRGB3 (C++20) VS2022 //提醒自己这代码的环境
 #include "pch.h"
 #include <Windows.h>
 #include <combaseapi.h>
