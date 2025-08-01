@@ -1,0 +1,43 @@
+        public static void ExtractImageFeatures(string pathDaiShiBie, string pathBaoCunShiBie)
+        {
+            if (!Directory.Exists(pathBaoCunShiBie))
+            {
+                Directory.CreateDirectory(pathBaoCunShiBie);
+            }
+            string[] exts = { ".png", ".jpg", ".jpeg", ".bmp" };
+            string[] files = Directory.GetFiles(pathDaiShiBie).Where(f => exts.Contains(Path.GetExtension(f).ToLower())).ToArray();
+            foreach (string file in files)
+            {
+                using Bitmap bmp = (Bitmap)Image.FromFile(file);
+                int h = bmp.Height;
+                int w = bmp.Width;
+                int total = h * w;                 // H×W
+                StringBuilder sb = new StringBuilder(total * 8); // 预估容量
+                for (int idx = 0; idx < total; idx++)
+                {
+                    int row = idx / w;             
+                    int col = idx - row * w;       
+                    System.Drawing.Color c = bmp.GetPixel(col, row); // System.Drawing.Color
+                    int r = c.A == 0 ? 0 : c.R;    
+                    int g = c.A == 0 ? 0 : c.G;
+                    int b = c.A == 0 ? 0 : c.B;
+                    //  写入缓冲区
+                    sb.Append(r); sb.Append(',');   
+                    sb.Append(g); sb.Append(',');   
+                    sb.Append(b);
+                    // 行尾换行，其他像素后加逗号
+                    if (col == w - 1)
+                    {
+                        sb.AppendLine();            // 换行
+                    }
+                    else
+                    {
+                        sb.Append(',');             // 逗号
+                    }
+                }
+                // 保存为 “原名+Feature.txt”
+                string name = Path.GetFileNameWithoutExtension(file);
+                string outFile = Path.Combine(pathBaoCunShiBie, name + "Feature.txt");
+                File.WriteAllText(outFile, sb.ToString(), Encoding.UTF8);
+            }
+        }

@@ -1,29 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Net;
+﻿using System.Diagnostics;
 using System.Net.Http;
-using System.Net.NetworkInformation;
-using System.Numerics;
-using System.Runtime.ConstrainedExecution;
-using System.Security.Policy;
-using System.Text;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using Windows.Media.Protection.PlayReady;
 using MessageBox = iNKORE.UI.WPF.Modern.Controls.MessageBox;
 using Page = iNKORE.UI.WPF.Modern.Controls.Page;
 
@@ -55,12 +32,12 @@ namespace NavigationViewExample.Pages
             int target2 = int.Parse($"{upmlist[1]}");
             if (current2 < target2)
             {
-                result=$"发现新版本:{target2}";
+                result = $"发现新版本:{target2}";
                 // 在某个事件或方法里调用
                 string url = "https://github.com/XLOk2568/csharp-easy-ai";
                 Process.Start(url);
             }
-            else if(current2>target2)
+            else if (current2 > target2)
             {
                 result = $"当前版本大于所公布的最新版本,此版本可能是测试版:{target2}";
             }
