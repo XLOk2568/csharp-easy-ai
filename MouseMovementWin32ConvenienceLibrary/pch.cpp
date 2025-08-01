@@ -1,4 +1,4 @@
-// pch.cpp — MouseMovementWin32ConvenienceLibrary (C++20)
+﻿// pch.cpp — MouseMovementWin32ConvenienceLibrary (C++20)
 #include "pch.h"
 #include <Windows.h>
 #include <random>
