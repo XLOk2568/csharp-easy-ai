@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // -----------------------------------------------------------------------------
 // pch.h – Precompiled header + 动态加载 OpenCL + CLMath API
