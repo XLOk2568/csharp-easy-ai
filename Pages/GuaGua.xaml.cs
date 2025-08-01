@@ -1,8 +1,4 @@
-﻿using ILGPU;
-using ILGPU.Runtime;
-using ILGPU.Runtime.Cuda;
-using ILGPU.Runtime.OpenCL;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -19,7 +15,7 @@ using Page = iNKORE.UI.WPF.Modern.Controls.Page;
 
 namespace NavigationViewExample.Pages
 {
-    
+
     public partial class GuaGua : Page
     {
         public GuaGua()
@@ -55,85 +51,12 @@ namespace NavigationViewExample.Pages
                     {
                         pathKeep2 = pathKeep; // 保存选择的路径
                         ring.Visibility = Visibility.Visible;
-                        await ProcessImagesGpu(path, pathKeep);
+                        await ImageFeatures(path, pathKeep);
                         MessageBox.Show($"CSV 文件已保存到: {pathKeep}", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
                         ring.Visibility = Visibility.Collapsed;
                     }
                 }
             }
-        }
-        private async Task ProcessImagesGpu(string srcFolder, string dstFolder)
-        {
-            Directory.CreateDirectory(dstFolder);
-            var files = Directory.GetFiles(srcFolder, "*.*", SearchOption.AllDirectories).Where(f => new[] { ".png", ".jpg", ".bmp" }.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase)).ToArray();
-            using var context = Context.Create(builder => builder.OpenCL());
-            var device = context.GetPreferredDevice(preferCPU: false);
-            using var accelerator = device.CreateAccelerator(context);// 修正为 Index2D
-            var kernel = accelerator.LoadAutoGroupedStreamKernel<ILGPU.Index2D, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, int, int>(ExtractKernel);
-            await Task.Run(() =>
-            {
-                foreach (var file in files)
-                {
-                    using var bmp = new Bitmap(file);
-                    int width = bmp.Width;
-                    int height = bmp.Height;
-                    var rect = new System.Drawing.Rectangle(0, 0, width, height);
-                    var data = bmp.LockBits(
-                        rect,
-                        System.Drawing.Imaging.ImageLockMode.ReadOnly,
-                        System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                    var pixelBytes = new byte[Math.Abs(data.Stride) * height];
-                    Marshal.Copy(data.Scan0, pixelBytes, 0, pixelBytes.Length);
-                    bmp.UnlockBits(data);
-                    using var dPixels = accelerator.Allocate1D(pixelBytes);
-                    using var dR = accelerator.Allocate1D<byte>(width * height);
-                    using var dG = accelerator.Allocate1D<byte>(width * height);
-                    using var dB = accelerator.Allocate1D<byte>(width * height);
-                    kernel(
-                        new ILGPU.Index2D(width, height), // 修正为 Index2D
-                        dPixels.View,
-                        dR.View,
-                        dG.View,
-                        dB.View,
-                        width,
-                        height
-                    );
-                    accelerator.Synchronize();
-                    var rArr = dR.GetAsArray1D();
-                    var gArr = dG.GetAsArray1D();
-                    var bArr = dB.GetAsArray1D();
-                    string name = Path.GetFileNameWithoutExtension(file);
-                    var channels = new[]
-                    {
-                        ("R", rArr),
-                        ("G", gArr),
-                        ("B", bArr)
-                    };
-                    foreach (var (tag, arr) in channels)
-                    {
-                        string outPath = Path.Combine(dstFolder, $"{name}{tag}.txt");
-                        using var sw = new StreamWriter(outPath);
-                        for (int y = 0; y < height; y++)
-                        {
-                            for (int x = 0; x < width; x++)
-                            {
-                                sw.Write(arr[y * width + x]);
-                                if (x < width - 1) sw.Write(',');
-                            }
-                            sw.WriteLine();
-                        }
-                    }
-                }
-            });
-        }
-        public static void ExtractKernel(ILGPU.Index2D index, ArrayView<byte> pixelData, ArrayView<byte> rView, ArrayView<byte> gView, ArrayView<byte> bView, int width, int height)
-        {
-            int x = index.X, y = index.Y;
-            if (x >= width || y >= height) return;
-            int baseIdx = (y * width + x) * 4;  // 格式：B, G, R, A
-            bView[y * width + x] = pixelData[baseIdx + 0];
-            gView[y * width + x] = pixelData[baseIdx + 1];
-            rView[y * width + x] = pixelData[baseIdx + 2];
         }
 
         private void Page_Loaded(object sender, RoutedEventArgs e)
@@ -309,94 +232,12 @@ namespace NavigationViewExample.Pages
                 await Task.Delay(100);
             }
         }
-        private async void Button_Click_1(object sender, RoutedEventArgs e)// 多通道合并
+        private  void Button_Click_1(object sender, RoutedEventArgs e)// 多通道合并
         {
-            // 1. 选择输入/输出文件夹（原样保留）
-            var dlg1 = new CommonOpenFileDialog { IsFolderPicker = true, Title = "选择通道文件所在文件夹" };
-            if (dlg1.ShowDialog() != CommonFileDialogResult.Ok) return;
-            string path3 = dlg1.FileName;
-
-            var dlg2 = new CommonOpenFileDialog { IsFolderPicker = true, Title = "选择输出文件夹" };
-            if (dlg2.ShowDialog() != CommonFileDialogResult.Ok) return;
-            string path4 = dlg2.FileName;
-
-            ring.Visibility = Visibility.Visible;
-
-            // 2. 扫描 R/G/B 文件组
-            var triplets = Directory.GetFiles(path3, "*R.txt")
-                .Select(r =>
-                {
-                    string name = Path.GetFileNameWithoutExtension(r).TrimEnd('R');
-                    return (
-                        baseName: name,
-                        rPath: r,
-                        gPath: Path.Combine(path3, name + "G.txt"),
-                        bPath: Path.Combine(path3, name + "B.txt")
-                    );
-                })
-                .Where(t => FileIO.Exists(t.gPath) && FileIO.Exists(t.bPath))
-                .ToList();
-
-            if (triplets.Count == 0)
-            {
-                MessageBox.Show("未找到有效的 R/G/B 通道文件组。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                ring.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            // 3. ILGPU 初始化（原样保留）
-            using var context = Context.Create(builder => builder.OpenCL());
-            var device = context.GetPreferredDevice(preferCPU: false);
-            using var accelerator = device.CreateAccelerator(context);
-            var kernel = accelerator.LoadAutoGroupedStreamKernel<Index1D,
-                ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>>(Conv1x1Kernel);
-
-            // 4. 并行处理
-            var tasks = triplets.Select(async t =>
-            {
-                // 4.1 读取三通道数据
-                var rArr = await ReadTxtToByteArray(t.rPath);
-                var gArr = await ReadTxtToByteArray(t.gPath);
-                var bArr = await ReadTxtToByteArray(t.bPath);
-
-                // 4.2 调用你的原算法：1×1 卷积求平均
-                var merged = KernelCom(accelerator, kernel, rArr, gArr, bArr);
-
-                // 4.3 计算宽高
-                int width = GetWidthFromTxt(t.rPath);
-                if (width <= 0) throw new InvalidDataException($"无法从 {t.rPath} 获取宽度");
-                if (merged.Length % width != 0)
-                    throw new InvalidDataException(
-                        $"{t.baseName}Merged 长度 {merged.Length} 无法整除宽度 {width}");
-                int height = merged.Length / width;
-
-                // 4.4 写出模板：首行写 “w h”，后续每行 width 个值
-                string outPath = Path.Combine(path4, $"{t.baseName}Merged.txt");
-                using var sw = new StreamWriter(outPath);
-                sw.WriteLine($"{width} {height}");
-                for (int y = 0; y < height; y++)
-                {
-                    int offset = y * width;
-                    var row = merged.Skip(offset).Take(width);
-                    sw.WriteLine(string.Join(",", row));
-                }
-            }).ToArray();
-
-            await Task.WhenAll(tasks);
-
-            MessageBox.Show("通道合并并写出矩形模板成功", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
-            ring.Visibility = Visibility.Collapsed; 
-        }
-        private static byte[] KernelCom(Accelerator accelerator, Action<ILGPU.Index1D, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>, ArrayView<byte>> kernel, byte[] rArr, byte[] gArr, byte[] bArr)// 1*1卷积核 算法
-        {
-            int len = Math.Min(rArr.Length, Math.Min(gArr.Length, bArr.Length));  // 取三条通道数组长度的最小值，防止越界  
-            using var dR = accelerator.Allocate1D(rArr);                          // 在 GPU 上分配并拷贝 R 通道数据  
-            using var dG = accelerator.Allocate1D(gArr);                          // 在 GPU 上分配并拷贝 G 通道数据  
-            using var dB = accelerator.Allocate1D(bArr);                          // 在 GPU 上分配并拷贝 B 通道数据  
-            using var dOut = accelerator.Allocate1D<byte>(len);                   // 在 GPU 上分配输出数组，用于存放合并后的结果  
-            kernel(new ILGPU.Index1D(len), dR.View, dG.View, dB.View, dOut.View);  // 调用 1×1 卷积 kernel，按索引并行计算每个像素的平均值  
-            accelerator.Synchronize();                                            // 等待所有 GPU 线程完成计算  
-            return dOut.GetAsArray1D();                                           // 将合并结果从 GPU 拷回到 CPU 并返回  
+            int a = 0;
+            a = 9;
+            int b = 3;
+            b = a * b;
         }
         private static async Task<byte[]> ReadTxtToByteArray(string path)        // 修正 ReadTxtToByteArray，跳过空字符串
         {
@@ -418,11 +259,7 @@ namespace NavigationViewExample.Pages
             if (line == null) return 0;
             return line.Split(',').Length;
         }
-        public static void Conv1x1Kernel(ILGPU.Index1D index, ArrayView<byte> r, ArrayView<byte> g, ArrayView<byte> b, ArrayView<byte> output)        // ILGPU 1x1卷积核（简单平均）
-        {
-            int i = index;
-            output[i] = (byte)((r[i] + g[i] + b[i]) / 3);
-        }
+
         public static int PCHW = 0;// 打开选择识别的窗口，这个值0表示可以，1表示已经打开(防止重复开启)
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
@@ -492,42 +329,35 @@ namespace NavigationViewExample.Pages
         }
         // 使用自己的opencl库
         private const string DllName = "CLMath.dll";
-
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern double CL_Add(double[] arr, int len, int deviceIndex);
-
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern double CL_Sub(double[] arr, int len, int deviceIndex);
-
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern double CL_Mul(double[] arr, int len, int deviceIndex);
-
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern double CL_Div(double[] arr, int len, int deviceIndex);
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int GetDeviceNamesCount();
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "GetDeviceNames", CharSet =CharSet.Ansi)]
-        private static extern void GetDeviceNames(int index, StringBuilder buf, int bufSize);
         // 按钮 “Run CL Operations” 异步执行 1+2+3, 2*4, 3-4, 4/2
         private async void BtnCompute_Click(object sender, RoutedEventArgs e)
         {
             const int device = 0;
-
             var addTask = Task.Run(() => CL_Add(new[] { 1.0, 2.0, 3.0 }, 3, device));
             var mulTask = Task.Run(() => CL_Mul(new[] { 2.0, 4.0 }, 2, device));
             var subTask = Task.Run(() => CL_Sub(new[] { 3.0, 4.0 }, 2, device));
             var divTask = Task.Run(() => CL_Div(new[] { 4.0, 2.0 }, 2, device));
-
             await Task.WhenAll(addTask, mulTask, subTask, divTask);
-
             MessageBox.Show($"1 + 2 + 3 = {addTask.Result}", "CL Add");
             MessageBox.Show($"2 × 4     = {mulTask.Result}", "CL Mul");
             MessageBox.Show($"3 − 4     = {subTask.Result}", "CL Sub");
             MessageBox.Show($"4 ÷ 2     = {divTask.Result}", "CL Div");
         }
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int GetDeviceNamesCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "GetDeviceNames", CharSet = CharSet.Ansi)]
+        private static extern void GetDeviceNames(int index, StringBuilder buf, int bufSize);
 
-        // 按钮 “Get All CL Devices” 异步枚举并在弹窗显示
+        [DllImport("CLMath.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void DisposeOpenCL();
         private async void BtnQuery_Click(object sender, RoutedEventArgs e)
         {
             await Task.Run(() =>
@@ -542,13 +372,156 @@ namespace NavigationViewExample.Pages
                     GetDeviceNames(i, buf, buf.Capacity);
                     sb.AppendLine($"Device {i}: {buf}");
                 }
-
                 // 切回 UI 线程弹窗
                 Dispatcher.Invoke(() =>
                 MessageBox.Show(sb.ToString(), "Available OpenCL Devices"));
-                Dispatcher.Invoke(() =>
-                MessageBox.Show("Device 0: NVDIA GeForce RTX 4050\nDevice 1: NVDIA GeForce RTX 3060", "Available OpenCL Devices"));
             });
+            DisposeOpenCL(); // 释放 OpenCL 资源
+        }
+
+        private async void Button_Click_5(object sender, RoutedEventArgs e)
+        {
+            const int device = 0;
+            var addTask = Task.Run(() => CL_Add(new[] { 1.0, 2.0, 3.0, 6663, 0.2 }, 5, device));
+            //var mulTask = Task.Run(() => CL_Mul(new[] { 2.0, 4.0 }, 2, device));
+            //var subTask = Task.Run(() => CL_Sub(new[] { 3.0, 4.0 }, 2, device));
+            //var divTask = Task.Run(() => CL_Div(new[] { 4.0, 2.0 }, 2, device));
+            await Task.WhenAll(addTask);
+            MessageBox.Show($"1 + 2 + 3 = {addTask.Result}", "CL Add");
+        }
+        public static void SlideOnce(int[,] newP,int[,] oldP,int times,List<float> scoreList,List<(int left, int top, int w, int h)> scoreInfoList)
+        {
+            //--- 0) 尺寸常量 -------------------------------------------------------
+            int bigH = newP.GetLength(0);  //这个是  检测图  的尺寸
+            int bigW = newP.GetLength(1);
+            int winH = oldP.GetLength(0);   //这个是  模板  的尺寸
+            int winW = oldP.GetLength(1);
+            //--- 1) 由 times 推 stride --------------------------------------------//times控制滑动次数
+            int rows = (int)Math.Ceiling(Math.Sqrt(times));
+            int cols = (int)Math.Ceiling((double)times / rows);
+            int strideY = (rows <= 1)? bigH - winH : (bigH - winH) / (rows - 1);
+            int strideX = (cols <= 1)? bigW - winW: (bigW - winW) / (cols - 1);
+            //--- 2) 预计算 ---------------------------------------------------------
+            int winN = winH * winW;//  模板的像素数量
+            int maxPix = 255;
+            int maxSAD = maxPix * winN;
+            //--- 3) 核心单 for -----------------------------------------------------
+            int total = rows * cols;
+            for (int t = 0; t < total; t++)
+            {
+                // 3-A) 左上角
+                int rowIdx = t / cols;
+                int colIdx = t - rowIdx * cols;
+                int y0 = rowIdx * strideY;
+                int x0 = colIdx * strideX;
+                if (y0 + winH > bigH || x0 + winW > bigW)
+                {
+                    continue;    // 超界窗口丢弃
+                }
+                // 3-B) 计算 SAD
+                int sad = 0;
+                int k = 0;
+                for (; k < winN; k++)
+                {
+                    int u = k / winW;
+                    int v = k - u * winW;
+                    int y = y0 + u;
+                    int x = x0 + v;
+                    int a = newP[y, x];
+                    int b = oldP[u, v];
+                    int diff;
+                    if (a >= b)
+                    {
+                        diff = a - b;
+                    }
+                    else
+                    {
+                        diff = b - a;
+                    }
+                    sad += diff;
+                }
+                // 3-C) 归一化分数
+                float score = 1.0f - ((float)sad / maxSAD);
+                scoreList.Add(score);
+                scoreInfoList.Add((x0, y0, winW, winH));
+            }
+        }
+        public  static async Task  ImageFeatures(string pathDaiShiBie, string pathBaoCunShiBie)
+        {
+            if (!Directory.Exists(pathBaoCunShiBie))
+            {
+                Directory.CreateDirectory(pathBaoCunShiBie);
+            }
+            string[] exts = { ".png", ".jpg", ".jpeg", ".bmp" };
+            string[] files = Directory.GetFiles(pathDaiShiBie).Where(f => exts.Contains(Path.GetExtension(f).ToLower())).ToArray();
+            await Task.WhenAll(files.Select(file => Task.Run(() =>
+            {
+                using Bitmap bmp = (Bitmap)Image.FromFile(file);
+                int h = bmp.Height;
+                int w = bmp.Width;
+                int total = h * w;                 // H×W
+                StringBuilder sb = new StringBuilder(total * 8); // 预估容量
+                for (int idx = 0; idx < total; idx++)
+                {
+                    int row = idx / w;
+                    int col = idx - row * w;
+                    System.Drawing.Color c = bmp.GetPixel(col, row); // System.Drawing.Color
+                    int r = c.A == 0 ? 0 : c.R;
+                    int g = c.A == 0 ? 0 : c.G;
+                    int b = c.A == 0 ? 0 : c.B;
+                    sb.Append(r); sb.Append(',');
+                    sb.Append(g); sb.Append(',');
+                    sb.Append(b);
+                    if (col == w - 1)
+                    {
+                        sb.AppendLine();            // 换行
+                    }
+                    else
+                    {
+                        sb.Append(',');             // 逗号
+                    }
+                }
+                string name = Path.GetFileNameWithoutExtension(file);
+                string outFile = Path.Combine(pathBaoCunShiBie, name + "Feature.txt");
+                File.WriteAllText(outFile, sb.ToString(), Encoding.UTF8);            
+            })));
+        }
+        //滑动窗口代码
+        [DllImport("CLMatch.dll", EntryPoint = "SlideOnce",CallingConvention = CallingConvention.Cdecl)]
+        private static extern int SlideOnce(int[] bigImg, int bigH, int bigW,int[] tplImg, int tplH, int tplW,int times,[Out] float[] scoreBuf,[Out] int[] infoBuf);
+        private async void RunSlide_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                int times = 1; // 滑动次数
+                // 1) 造两张假的图片 —— 实际项目里用真正像素填充
+                int bigH = 512, bigW = 512;
+                int tplH = 64, tplW = 64;
+                int[] bigImg = new int[bigH * bigW];   // 0 填充  待检测图
+                int[] tplImg = new int[tplH * tplW];   // 0 填充     特征模板
+                // 2) 计算输出缓冲区大小
+                //    假设返回每个滑窗一个 score，同时 info 四个 int（例：x,y,w,h）
+                float[] scoreBuf = new float[times];
+                int[] infoBuf = new int[times * 4];
+                int ret = await Task.Run(() =>SlideOnce(bigImg, bigH, bigW,tplImg, tplH, tplW,times: 1,scoreBuf,infoBuf));
+                // 4) 检查返回值 & 用结果
+                if (ret == 0)
+                {
+                    MessageBox.Show($"SlideOnce OK. Top-1 Score = {scoreBuf[0]:F3}");
+                }
+                else
+                {
+                    MessageBox.Show($"SlideOnce Failed, err = {ret}", "Error");
+                }
+            }
+            catch (DllNotFoundException ex)
+            {
+                MessageBox.Show(ex.Message, "DLL Missing");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "Unhandled");
+            }
         }
     }
 }
