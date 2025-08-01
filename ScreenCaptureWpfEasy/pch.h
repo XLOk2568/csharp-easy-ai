@@ -1,4 +1,4 @@
-// pch.h — 预编译头
+﻿// pch.h — 预编译头
 #ifndef PCH_H
 #define PCH_H
 
