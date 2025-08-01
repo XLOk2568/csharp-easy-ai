@@ -38,6 +38,9 @@
 [MouseMovementWin32ConvenienceLibrar](https://github.com/XLOk2568/MouseMovementWin32ConvenienceLibrary)(用于wpf鼠标移动)
 
 
+[CLMath](https://github.com/XLOk2568/CLMath)(基于opencl开源项目修改精简后,便于调用opencl进行数学计算)
+
+
 ## 开发进度/日志
 
 
