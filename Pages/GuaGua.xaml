@@ -27,6 +27,7 @@
             <Image Margin="440,48,0,0" Width="28" Height="26" VerticalAlignment="Top" HorizontalAlignment="Left" Source="/PNG/LinkUCB.png"/>
             <Label Name="UserCLabel" Margin="470,48,0,0" Width="104" Height="26" VerticalAlignment="Top" HorizontalAlignment="Left" FontSize="10" Foreground="#FFBBBBBB"  />
             <Button Margin="436,46,0,0" VerticalAlignment="Top" Width="140" Background="#0000" Height="30" Click="Button_Click_4" />
+            <Button Content="GetNames" Margin="581,10,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Click="BtnQuery_Click"/>
         </Grid>
     </ui:ScrollViewerEx>
 </ui:Page>
