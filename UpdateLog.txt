@@ -1,8 +1,11 @@
 === ===
+2025/08/02sat:
 1.视觉网络增加新接口RunSlideKernelHalf,入
 const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, float* scoreBuf, int* infoBuf
 返回为矩阵
 2.修复了部分bug
+3.优化控制预览捕获区域画面的逻辑
+4.删除了ILGPU的所有使用
 === ===
 2025/08/01fri:
 1.视觉网络已经搭建
@@ -21,4 +24,5 @@ const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, fl
 === ===
 2025/06/08/sun:
 实现了wpf使用脚本，以及完成了部分词元生成。
+
 
