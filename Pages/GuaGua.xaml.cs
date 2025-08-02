@@ -153,8 +153,7 @@ namespace NavigationViewExample.Pages
         internal static class NativeMethods
         {
             [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
-            internal static extern bool RGBData(int x, int y, int width, int height,
-                                                out IntPtr matrix, out int outW, out int outH);
+            internal static extern bool RGBData(int x, int y, int width, int height,out IntPtr matrix, out int outW, out int outH);
 
             [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
             internal static extern void FreeBuffer(IntPtr ptr);
@@ -281,6 +280,53 @@ namespace NavigationViewExample.Pages
                     }
                     else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
                 }
+            }
+        }
+        //  CLMatch.dll  networkhalfsize 
+        [DllImport("CLMatch.dll", EntryPoint = "networkhalfsize", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int NetworkHalfSize(int[] bigImg, int bigH, int bigW,int[] tplImg, int tplH, int tplW,[Out] float[] scoreBuf,[Out] int[] infoBuf);
+        // ②  WPF 按钮事件：仅演示 networkhalfsize 的一次调用
+        private async void RunHalfSlide_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                /* ------------------------------------------
+                 * 1) 造两张“假”图：待检测图 1000×8000、模板 300×200
+                 *    （实际项目中请替换为真实像素）
+                 * ------------------------------------------ */
+                int bigH = 1000, bigW = 8000;    // 待检测大图
+                int tplH = 300, tplW = 200;    // 特征模板
+                int[] bigImg = new int[bigH * bigW];   // 灰度 int32
+                int[] tplImg = new int[tplH * tplW];
+                /* ------------------------------------------
+                 * 2) 计算缓冲区大小
+                 *    步幅 = 模板尺寸 / 2   → rows × cols
+                 * ------------------------------------------ */
+                int strideY = tplH / 2;          // 300 / 2 = 150
+                int strideX = tplW / 2;          // 200 / 2 = 100
+                int rows = (bigH - tplH) / strideY + 1; // (1000-300)/150 + 1 = 5
+                int cols = (bigW - tplW) / strideX + 1; // (8000-200)/100 + 1 = 79
+                int total = rows * cols;                // 5 × 79 = 395
+                float[] scoreBuf = new float[total];    // 每个滑窗一个分数
+                int[] infoBuf = new int[total * 2];  // 行、列各 1 个 int
+                int ret = await Task.Run(() =>
+                NetworkHalfSize(bigImg, bigH, bigW,tplImg, tplH, tplW,scoreBuf, infoBuf));
+                if (ret >= 0)
+                {
+                    MessageBox.Show($"networkhalfsize OK，窗口总数 = {total}，Top-1 Score = {scoreBuf[0]:F3}");
+                }
+                else
+                {
+                    MessageBox.Show($"networkhalfsize Failed，err = {ret}", "Error");
+                }
+            }
+            catch (DllNotFoundException ex)
+            {
+                MessageBox.Show(ex.Message, "DLL Missing");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "Unhandled");
             }
         }
         private string FeaturesFolder = null!;
@@ -483,13 +529,13 @@ namespace NavigationViewExample.Pages
                     MessageBox.Show($"SlideOnce OK. Top-1 Score = {scoreBuf[0]:F3}");
                 }
                 else
-                {
-                    MessageBox.Show($"SlideOnce Failed, err = {ret}", "Error");
+                { //
+                  MessageBox.Show($"SlideOnce Failed, err = {ret}", "Error");
                 }
             }
             catch (DllNotFoundException ex)
             {
-                MessageBox.Show(ex.Message, "DLL Missing");
+                MessageBox.Show(ex.Message, "DLL Missing");                   
             }
             catch (Exception ex)
             {
