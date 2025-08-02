@@ -26,7 +26,7 @@
 [CommonFileDialogs.Wpf](https://github.com/leisn/CommonFileDialogs.Wpf)(用于wpf使用Windows通用文件对话框)
 
 
-[ILGPU](https://ilgpu.net/)(<del>用于GPU加速，主要用于一些算法加速,将在之后减少使用,替换为5CLMath</del>,已经在此项目中完全停用并删除)
+[ILGPU](https://github.com/m4rs-mt/ILGPU)(<del>用于GPU加速，主要用于一些算法加速,将在之后减少使用,替换为5CLMath</del>,已经在此项目中完全停用并删除)
 
 
 ### 本项目使用的项目中,这些项目是本人的其他项目(基于C++)
