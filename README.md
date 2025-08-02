@@ -17,7 +17,7 @@
 ## 使用了这些项目
 
 
-[ILGPU](https://ilgpu.net/)(<del>用于GPU加速，主要用于一些算法加速,将在之后减少使用,替换为5CLMath</del>)
+[ILGPU](https://ilgpu.net/)(<del>用于GPU加速，主要用于一些算法加速,将在之后减少使用,替换为5CLMath</del>,已经在此项目中完全停用并删除)
 
 
 [iNKORE.UI.WPF.Modern](https://github.com/iNKORE-NET/UI.WPF.Modern/)(现代化UI)
