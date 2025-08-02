@@ -6,6 +6,7 @@
 #include <numeric>
 #include <cstring>   // memcpy
 #include <cmath>
+#include <algorithm>          // ★ std::max 用到
 constexpr auto CL_DEVICE_NAME = 0x102B;
 
 // 内部全局状态
@@ -188,6 +189,10 @@ static double RunKernel(cl_kernel kernel,
 
 extern "C"
 {
+    int __cdecl networkhalfsize(const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, float* scoreBuf, int* infoBuf)
+    {
+		return RunSlideKernelHalf(bigImg, bigH, bigW, tplImg, tplH, tplW, scoreBuf, infoBuf);
+    }
     int __cdecl SlideOnce(const int* bigImg, int bigH, int bigW,const int* tplImg, int tplH, int tplW,int times,float* scoreBuf,int* infoBuf)
     {
         return RunSlideKernel(bigImg, bigH, bigW, tplImg, tplH, tplW, times, scoreBuf, infoBuf);
@@ -248,7 +253,7 @@ extern "C"
     return RunKernel(g_divKer, arr, count, deviceIndex);    
     DisposeOpenCL();
     }
-//网络 
+//网络 手动设置 滑动次数
     static int RunSlideKernel(const int* bigImg, int bigH, int bigW,const int* tplImg, int tplH, int tplW,int times,float* scoreBuf,int* infoBuf)
     {
         InitOpenCL();
@@ -313,6 +318,64 @@ extern "C"
         }
     return valid;
     }
+    //自动半 特征图网络
+    static int RunSlideKernelHalf(const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, float* scoreBuf, int* infoBuf)
+    {
+		InitOpenCL();
+        int strideY = (tplH / 2, 1);          // tpl 高的一半
+        int strideX = (tplW / 2, 1);       // tpl 宽的一半 9为什么没写max,因为不可能有傻逼拿长或者宽为1的图吧,真有的话,“哥写的不是算法，是防傻逼框架。”0
+        int rows = (bigH - tplH) / strideY + 1;       // 向下整除 + 1
+        int cols = (bigW - tplW) / strideX + 1;
+        int total = rows * cols;
+        int tplPix = tplH * tplW;
+        int maxSAD = 255 * tplPix;
+        /* ---------- GPU 缓冲区 ---------- */
+        size_t bigSz = sizeof(int) * bigH * bigW;
+        size_t tplSz = sizeof(int) * tplH * tplW;
+        size_t scoSz = sizeof(float) * total;
+        size_t infSz = sizeof(cl_int4) * total;
+        cl_mem dBig = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, bigSz, (void*)bigImg, nullptr);
+        cl_mem dTpl = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, tplSz, (void*)tplImg, nullptr);
+        cl_mem dSco = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, scoSz, nullptr, nullptr);
+        cl_mem dInf = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, infSz, nullptr, nullptr);
+        int idx = 0;
+        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dBig);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &bigW);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &bigH);
+        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dTpl);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &tplW);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &tplH);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &rows);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &cols);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &strideX);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &strideY);
+        clSetKernelArg(g_slideKer, idx++, sizeof(int), &maxSAD);
+        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dSco);
+        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dInf);
+        size_t global = total;
+        clEnqueueNDRangeKernel(g_queues[0], g_slideKer, 1, nullptr, &global, nullptr, 0, nullptr, nullptr);
+        clFinish(g_queues[0]);
+        std::vector<float>   tmpSco(total);
+        std::vector<cl_int4> tmpInf(total);
+        clEnqueueReadBuffer(g_queues[0], dSco, CL_TRUE, 0, scoSz, tmpSco.data(), 0, nullptr, nullptr);
+        clEnqueueReadBuffer(g_queues[0], dInf, CL_TRUE, 0, infSz, tmpInf.data(), 0, nullptr, nullptr);
+        clReleaseMemObject(dBig); clReleaseMemObject(dTpl);
+        clReleaseMemObject(dSco); clReleaseMemObject(dInf);
+        int valid = 0;
+        for (int i = 0; i < total; ++i)
+        {
+            if (tmpSco[i] < 0) continue;
+            scoreBuf[valid] = tmpSco[i];
+            infoBuf[valid * 4 + 0] = tmpInf[i].s[0];
+            infoBuf[valid * 4 + 1] = tmpInf[i].s[1];
+            infoBuf[valid * 4 + 2] = tmpInf[i].s[2];
+            infoBuf[valid * 4 + 3] = tmpInf[i].s[3];
+            ++valid;
+        }
+        return valid;
+    }
+
+
 // 释放所有 OpenCL 资源
 void __cdecl DisposeOpenCL()
 {
