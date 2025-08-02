@@ -29,7 +29,7 @@
 [ILGPU](https://ilgpu.net/)(<del>用于GPU加速，主要用于一些算法加速,将在之后减少使用,替换为5CLMath</del>,已经在此项目中完全停用并删除)
 
 
-### 这些项目是本人的其他项目(基于C++)
+### 本项目使用的项目中,这些项目是本人的其他项目(基于C++)
 
 
 [ScreenCaptureWpfEasy](https://github.com/XLOk2568/ScreenCaptureWpfEasy)(用于wpf通过GDI捕获用户的显示)
