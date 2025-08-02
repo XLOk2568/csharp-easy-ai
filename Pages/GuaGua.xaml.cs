@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using WindowsAPICodePack.Dialogs;
 using WPFtransformer.Pages.child;
 using FileIO= System.IO.File;
@@ -22,10 +23,6 @@ namespace NavigationViewExample.Pages
         {
             InitializeComponent();
             _proc = HookCallback;//鼠标检测                             
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;// 将 DLL 搜索路径设为程序运行目录 调用自己的C++库
-            SetDllDirectory(baseDir);
-            //OnLoaded;//启动的
-            //OnUnloaded;
         }
         private string pathKeep2 = ""; // 用于存储选择的保存路径
         private async void Button_Click(object sender, RoutedEventArgs e)
@@ -78,11 +75,13 @@ namespace NavigationViewExample.Pages
                 content = FileIO.ReadAllText(filePathImage);
                 if (content == "On")
                 {
+                    Sriof = 1;
                     OffOn.Source = null;
                     OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
                 }
                 else if (content == "Off")
                 {
+                    Sriof = 0;
                     OffOn.Source = null;
                     OffOn.Source = new BitmapImage(new Uri("/PNG/Off.png", UriKind.Relative));
                 }
@@ -103,31 +102,88 @@ namespace NavigationViewExample.Pages
                 MessageBox.Show("特征路径不存在!!!", "!", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
-        private void Button_Click2(object sender, RoutedEventArgs e)
+        [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]// 原有 P/Invoke 声明
+        private static extern bool CaptureFrame(int x, int y, int width, int height, out IntPtr buffer, out int outWidth, out int outHeight);
+        [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void FreeBuffer(IntPtr buffer);
+        private int CatchLeft = 100;
+        private int CatchTop = 300;
+        private int CatchWidth = 900;
+        private int CatchHeight = 600;
+        private bool _running =false; // 控制捕获循环的标志
+        private  void Button_Click2(object sender, RoutedEventArgs e)
         {
             if (PCHW == 0)
             {
-                _runningimage = false;
-                PCHW = 1;
-            }
-            else
-            {
-                _runningimage = true;
-                PCHW = 0;
-            }
-            if (_isRunning == false)
-            {
+                PCHW = 1;//下面是初始化 捕获屏幕代码
+                _running=true;
+                Task.Run(CaptureLoopAsync);
                 _hookId = SetHook(_proc);
-                _isRunning = true;
                 StartButton.Content = "Stop";
-                PCHW = 1;
             }
             else
             {
+                _running = false; // 停止捕获循环
                 UnhookWindowsHookEx(_hookId);
-                _isRunning = false;
                 StartButton.Content = "Start";
                 PCHW = 0;
+            }
+        }
+        private async Task CaptureLoopAsync()
+        {
+            while (_running == true&&Sriof==1)
+            {
+                if (!CaptureFrame(CatchLeft, CatchTop, CatchWidth, CatchHeight, out IntPtr bufPtr, out int width, out int height))
+                {
+                    MessageBox.Show("Capture failed");
+                    return;
+                }
+                int stride = width * 2;
+                int bufSize = height * stride;
+                var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr565, null, bufPtr, bufSize, stride);
+                bmp.Freeze();
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    SrI.Source = bmp;
+                });
+                FreeBuffer(bufPtr);
+                await Task.Delay(100);//循环间隔
+            }
+        }
+        internal static class NativeMethods
+        {
+            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
+            internal static extern bool RGBData(int x, int y, int width, int height,
+                                                out IntPtr matrix, out int outW, out int outH);
+
+            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
+            internal static extern void FreeBuffer(IntPtr ptr);
+        }
+        private async Task RGBGetData()
+        {
+            while (_running == true)
+            {
+                if (!NativeMethods.RGBData(CatchLeft, CatchTop, CatchWidth, CatchHeight, out IntPtr ptr, out int w, out int h))
+                {
+                    MessageBox.Show("调用 RGBData 失败");
+                    return;
+                }
+                try
+                {
+                    int totalBytes = w * h * 3;
+                    byte[] rgb = new byte[totalBytes];
+                    Marshal.Copy(ptr, rgb, 0, totalBytes);
+                    // 可视化：转换为 BitmapSource 并显示到 Image 控件
+                    //var bmp = BitmapSource.Create(w, h, 96, 96,
+                                                  //PixelFormats.Rgb24, null,
+                                                  //rgb, w * 3);
+                    //ImgPreview.Source = bmp; // 假设你有一个 <Image x:Name="ImgPreview"/>
+                }
+                finally
+                {
+                    NativeMethods.FreeBuffer(ptr);
+                }  
+                await Task.Delay(100); // 控制捕获频率
             }
         }
         private bool _isRunning = false;// 运行状态标志
@@ -145,23 +201,7 @@ namespace NavigationViewExample.Pages
             const int WM_RBUTTONDOWN = 0x0204;
             if (nCode >= 0 && wParam == (IntPtr)WM_RBUTTONDOWN)
             {
-                string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "data2.txt");
-                string content = FileIO.ReadAllText(filePath);
-                string[] parts = content.Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
-                CatchLeft = (int)Convert.ToDouble(parts[4]);
-                CatchTop = (int)Convert.ToDouble(parts[3]);
-                CatchWidth = (int)Convert.ToDouble(parts[1]);
-                CatchHeight = (int)Convert.ToDouble(parts[2]);
-                if (_runningimage == false)
-                {
-                    Task.Run(CaptureLoopAsync);
-                    _runningimage = true;
-                }
-                else
-                {
-                    _runningimage = false;
-                }
-                //Application.Current.Dispatcher.Invoke(…);//切换到UI线程
+                MessageBox.Show("右键点击事件触发！", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
         }
@@ -178,67 +218,7 @@ namespace NavigationViewExample.Pages
         private const int WH_MOUSE_LL = 14;
         private string CharacteristicPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Feature");//特征存储路径
         private volatile bool _runningimage = false;
-        private int CatchLeft = 1;
-        private int CatchTop = 1;
-        private int CatchWidth = 1;
-        private int CatchHeight = 1;
-        //调用自己的C++库
-        [DllImport("kernel32.dll", SetLastError = true)]        // 在应用启动时设置 DLL 搜索路径
-        private static extern bool SetDllDirectory(string lpPathName);
-        // 原有 P/Invoke 声明
-        [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern bool CaptureFrameRGB(int x, int y, int width, int height, out IntPtr buffer, out int outWidth, out int outHeight);
-        [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void FreeBuffer(IntPtr buffer);
-        private async Task CaptureLoopAsync()//截图实现
-        {
-            string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
-            string content = "On";
-            int ImageOnOrOff = 0;
-            if (!FileIO.Exists(filePathImage))
-            {
-                FileIO.WriteAllText(filePathImage, "On");
-                ImageOnOrOff = 1;
-            }
-            else
-            {
-                content = FileIO.ReadAllText(filePathImage);
-                if (content == "On")
-                {
-                    ImageOnOrOff = 1;
-                }
-                else if (content == "Off")
-                {
-                    ImageOnOrOff = 0;
-                }
-                else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
-            }
-            while (_runningimage == true && PCHW == 1 && ImageOnOrOff == 1)
-            {
-                if (!CaptureFrameRGB(CatchLeft, CatchTop, CatchWidth, CatchHeight, out IntPtr bufPtr, out int width, out int height))
-                {
-                    MessageBox.Show("Capture failed");
-                    return;
-                }
-                int stride = width * 2;
-                int bufSize = height * stride;
-                var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr565, null, bufPtr, bufSize, stride);
-                bmp.Freeze();
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                {
-                    ScreenImage.Source = bmp;
-                });
-                FreeBuffer(bufPtr);
-                await Task.Delay(100);
-            }
-        }
-        private  void Button_Click_1(object sender, RoutedEventArgs e)// 多通道合并
-        {
-            int a = 0;
-            a = 9;
-            int b = 3;
-            b = a * b;
-        }
+        //调用自己的C++库 捕获屏幕的
         private static async Task<byte[]> ReadTxtToByteArray(string path)        // 修正 ReadTxtToByteArray，跳过空字符串
         {
             var lines = await FileIO.ReadAllLinesAsync(path);
@@ -270,45 +250,37 @@ namespace NavigationViewExample.Pages
                 gauguachwWin.Show();
             }
         }
-        //  RGB三色合并单(调用自己封装的库)，在 GPU 上进行模板匹配(读取本地的特征数据的文件夹)，然后输出最匹配位置和大小
-        // 截屏 DLL 导入  //处理
-
-
-        // 1. 按钮事件：加载模板＋主图 → 一维化数据 → GPU 计算 → 冒泡排序 → 显示结果
-        private void RGB(object sender, RoutedEventArgs e)
-        {
-
-        }
-        /// <summary>
-        /// 单个灰度模板
-        /// </summary>
-
+        //  单独显示 捕获区域 预览的开关
+        private int Sriof = 0;
         private void Button_Click_3(object sender, RoutedEventArgs e)
         {
-            string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
-            string content = "On";
-            if (!FileIO.Exists(filePathImage))
+            if (PCHW == 0)
             {
-                FileIO.WriteAllText(filePathImage, "On");
-                OffOn.Source = null;
-                OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
-            }
-            else
-            {
-                content = FileIO.ReadAllText(filePathImage);
-                if (content == "On")
+                string filePathImage = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Appdata", "ImageOnOrOff.txt");
+                string content = "On";
+                if (!FileIO.Exists(filePathImage))
                 {
-                    FileIO.WriteAllText(filePathImage, "Off");
-                    OffOn.Source = null;
-                    OffOn.Source = new BitmapImage(new Uri("/PNG/Off.png", UriKind.Relative));
-                }
-                else if (content == "Off")
-                {
-                    FileIO.WriteAllText(filePathImage, "On");
+                    FileIO.WriteAllText(filePathImage, "On");Sriof = 1;
                     OffOn.Source = null;
                     OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
                 }
-                else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
+                else
+                {
+                    content = FileIO.ReadAllText(filePathImage);
+                    if (content == "On")
+                    {
+                        FileIO.WriteAllText(filePathImage, "Off");Sriof = 1;
+                        OffOn.Source = null;
+                        OffOn.Source = new BitmapImage(new Uri("/PNG/Off.png", UriKind.Relative));
+                    }
+                    else if (content == "Off")
+                    {
+                        FileIO.WriteAllText(filePathImage, "On");Sriof = 0;
+                        OffOn.Source = null;
+                        OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
+                    }
+                    else { MessageBox.Show($"文件:\n{filePathImage}\n的内容格式不正确，已经取消了你的操作"); }
+                }
             }
         }
         private string FeaturesFolder = null!;
@@ -327,7 +299,7 @@ namespace NavigationViewExample.Pages
                 FeaturesFolder = FileIO.ReadAllText(FFTPath);
             }
         }
-        // 使用自己的opencl库
+        // 使用自己的opencl库 CLMath
         private const string DllName = "CLMath.dll";
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern double CL_Add(double[] arr, int len, int deviceIndex);
@@ -378,7 +350,6 @@ namespace NavigationViewExample.Pages
             });
             DisposeOpenCL(); // 释放 OpenCL 资源
         }
-
         private async void Button_Click_5(object sender, RoutedEventArgs e)
         {
             const int device = 0;
@@ -389,6 +360,7 @@ namespace NavigationViewExample.Pages
             await Task.WhenAll(addTask);
             MessageBox.Show($"1 + 2 + 3 = {addTask.Result}", "CL Add");
         }
+        // 示例的代码 c# 实现滑动窗口模板匹配
         public static void SlideOnce(int[,] newP,int[,] oldP,int times,List<float> scoreList,List<(int left, int top, int w, int h)> scoreInfoList)
         {
             //--- 0) 尺寸常量 -------------------------------------------------------
@@ -446,6 +418,7 @@ namespace NavigationViewExample.Pages
                 scoreInfoList.Add((x0, y0, winW, winH));
             }
         }
+        // 提取图片的 RGB通道
         public  static async Task  ImageFeatures(string pathDaiShiBie, string pathBaoCunShiBie)
         {
             if (!Directory.Exists(pathBaoCunShiBie))
