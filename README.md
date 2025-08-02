@@ -17,9 +17,6 @@
 ## 使用了这些项目
 
 
-[ILGPU](https://ilgpu.net/)(<del>用于GPU加速，主要用于一些算法加速,将在之后减少使用,替换为5CLMath</del>,已经在此项目中完全停用并删除)
-
-
 [iNKORE.UI.WPF.Modern](https://github.com/iNKORE-NET/UI.WPF.Modern/)(现代化UI)
 
 
@@ -27,6 +24,9 @@
 
 
 [CommonFileDialogs.Wpf](https://github.com/leisn/CommonFileDialogs.Wpf)(用于wpf使用Windows通用文件对话框)
+
+
+[ILGPU](https://ilgpu.net/)(<del>用于GPU加速，主要用于一些算法加速,将在之后减少使用,替换为5CLMath</del>,已经在此项目中完全停用并删除)
 
 
 ### 这些项目是本人的其他项目(基于C++)
@@ -38,7 +38,7 @@
 [MouseMovementWin32ConvenienceLibrar](https://github.com/XLOk2568/MouseMovementWin32ConvenienceLibrary)(用于wpf鼠标移动)
 
 
-[CLMath](https://github.com/XLOk2568/CLMath)(基于opencl开源项目修改精简后,便于调用opencl进行数学计算)
+[CLMath](https://github.com/XLOk2568/CLMath)(基于opencl开源项目修改精简后,便于调用opencl进行数学计算和多OpenCL设备并行计算)
 
 
 ## 开发进度/日志
