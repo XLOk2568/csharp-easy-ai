@@ -29,7 +29,7 @@ namespace NavigationViewExample.Pages
             _proc = HookCallback;//鼠标检测                             
         }
         private string pathKeep2 = ""; // 用于存储选择的保存路径
-        private List <int> listShiShiiBuHuo=new List<int>();//     转成RGB矩阵的
+        private List<int> listShiShiiBuHuo=new List<int>();//     转成RGB矩阵的 中间 数据
         private async void Button_Click(object sender, RoutedEventArgs e)
         {
             string path = "";
@@ -136,7 +136,7 @@ namespace NavigationViewExample.Pages
         }
         private async Task CaptureLoopAsync()
         {
-            while (_running == true&&Sriof==1)
+            while (_running == true)
             {
                 if (!CaptureFrame(CatchLeft, CatchTop, CatchWidth, CatchHeight, out IntPtr bufPtr, out int width, out int height))
                 {
@@ -145,12 +145,33 @@ namespace NavigationViewExample.Pages
                 }
                 int stride = width * 2;
                 int bufSize = height * stride;
-                var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr565, null, bufPtr, bufSize, stride);
-                bmp.Freeze();
-                Application.Current.Dispatcher.Invoke(() =>
+                var RGBMatrix = new int[height,width];
+                byte[] rawData = new byte[bufSize];
+                Marshal.Copy(bufPtr, rawData, 0, bufSize);
+                for (int y = 0; y < height; y++)
                 {
-                    SrI.Source = bmp;
-                });
+                    for (int x = 0; x < width; x++)
+                    {
+                        int index = y * stride + x * 2;
+                        ushort pixel565 = BitConverter.ToUInt16(rawData, index);
+                        int r = (pixel565 >> 11) & 0x1F;
+                        int g = (pixel565 >> 5) & 0x3F;
+                        int b = pixel565 & 0x1F;
+                        r = (r << 3) | (r >> 2);
+                        g = (g << 2) | (g >> 4);
+                        b = (b << 3) | (b >> 2);
+                        RGBMatrix[y, x] = (r << 16) | (g << 8) | b;
+                    }
+                }  //获取实时 RGB矩阵
+                if (Sriof == 1)
+                {
+                    var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr565, null, bufPtr, bufSize, stride);
+                    bmp.Freeze();
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        SrI.Source = bmp;
+                    });
+                }
                 FreeBuffer(bufPtr);
                 await Task.Delay(100);//循环间隔
             }
