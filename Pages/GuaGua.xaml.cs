@@ -1,18 +1,22 @@
-﻿using System.Diagnostics;
+﻿using iNKORE.UI.WPF.Modern.Controls;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using WindowsAPICodePack.Dialogs;
 using WPFtransformer.Pages.child;
 using FileIO= System.IO.File;
 using MessageBox = iNKORE.UI.WPF.Modern.Controls.MessageBox;
 using Page = iNKORE.UI.WPF.Modern.Controls.Page;
+using Path = System.IO.Path;
 
 namespace NavigationViewExample.Pages
 {
@@ -25,6 +29,7 @@ namespace NavigationViewExample.Pages
             _proc = HookCallback;//鼠标检测                             
         }
         private string pathKeep2 = ""; // 用于存储选择的保存路径
+        private List <int> listShiShiiBuHuo=new List<int>();//     转成RGB矩阵的
         private async void Button_Click(object sender, RoutedEventArgs e)
         {
             string path = "";
@@ -150,42 +155,7 @@ namespace NavigationViewExample.Pages
                 await Task.Delay(100);//循环间隔
             }
         }
-        internal static class NativeMethods
-        {
-            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
-            internal static extern bool RGBData(int x, int y, int width, int height,out IntPtr matrix, out int outW, out int outH);
 
-            [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
-            internal static extern void FreeBuffer(IntPtr ptr);
-        }
-        private async Task RGBGetData()
-        {
-            while (_running == true)
-            {
-                if (!NativeMethods.RGBData(CatchLeft, CatchTop, CatchWidth, CatchHeight, out IntPtr ptr, out int w, out int h))
-                {
-                    MessageBox.Show("调用 RGBData 失败");
-                    return;
-                }
-                try
-                {
-                    int totalBytes = w * h * 3;
-                    byte[] rgb = new byte[totalBytes];
-                    Marshal.Copy(ptr, rgb, 0, totalBytes);
-                    // 可视化：转换为 BitmapSource 并显示到 Image 控件
-                    //var bmp = BitmapSource.Create(w, h, 96, 96,
-                                                  //PixelFormats.Rgb24, null,
-                                                  //rgb, w * 3);
-                    //ImgPreview.Source = bmp; // 假设你有一个 <Image x:Name="ImgPreview"/>
-                }
-                finally
-                {
-                    NativeMethods.FreeBuffer(ptr);
-                }  
-                await Task.Delay(100); // 控制捕获频率
-            }
-        }
-        private bool _isRunning = false;// 运行状态标志
         private IntPtr _hookId = IntPtr.Zero;// 钩子句柄，回调
         private readonly LowLevelMouseProc _proc;
         private IntPtr SetHook(LowLevelMouseProc proc)// 2安装全局低级鼠标钩子
@@ -216,7 +186,6 @@ namespace NavigationViewExample.Pages
         private static extern IntPtr GetModuleHandle(string lpModuleName);
         private const int WH_MOUSE_LL = 14;
         private string CharacteristicPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Feature");//特征存储路径
-        private volatile bool _runningimage = false;
         //调用自己的C++库 捕获屏幕的
         private static async Task<byte[]> ReadTxtToByteArray(string path)        // 修正 ReadTxtToByteArray，跳过空字符串
         {
@@ -268,13 +237,13 @@ namespace NavigationViewExample.Pages
                     content = FileIO.ReadAllText(filePathImage);
                     if (content == "On")
                     {
-                        FileIO.WriteAllText(filePathImage, "Off");Sriof = 1;
+                        FileIO.WriteAllText(filePathImage, "Off");Sriof = 0;
                         OffOn.Source = null;
                         OffOn.Source = new BitmapImage(new Uri("/PNG/Off.png", UriKind.Relative));
                     }
                     else if (content == "Off")
                     {
-                        FileIO.WriteAllText(filePathImage, "On");Sriof = 0;
+                        FileIO.WriteAllText(filePathImage, "On");Sriof = 1;
                         OffOn.Source = null;
                         OffOn.Source = new BitmapImage(new Uri("/PNG/On.png", UriKind.Relative));
                     }
@@ -400,11 +369,11 @@ namespace NavigationViewExample.Pages
         {
             const int device = 0;
             var addTask = Task.Run(() => CL_Add(new[] { 1.0, 2.0, 3.0, 6663, 0.2 }, 5, device));
-            //var mulTask = Task.Run(() => CL_Mul(new[] { 2.0, 4.0 }, 2, device));
-            //var subTask = Task.Run(() => CL_Sub(new[] { 3.0, 4.0 }, 2, device));
-            //var divTask = Task.Run(() => CL_Div(new[] { 4.0, 2.0 }, 2, device));
-            await Task.WhenAll(addTask);
-            MessageBox.Show($"1 + 2 + 3 = {addTask.Result}", "CL Add");
+            var mulTask = Task.Run(() => CL_Mul(new[] { 2.0, 4.0 }, 2, device));
+            var subTask = Task.Run(() => CL_Sub(new[] { 3.0, 4.0 }, 2, device));
+            var divTask = Task.Run(() => CL_Div(new[] { 4.0, 2.0 }, 2, device));
+            await Task.WhenAll(mulTask);
+            MessageBox.Show($"1 + 2 + 3 = {mulTask.Result}", "CL Add");
         }
         // 示例的代码 c# 实现滑动窗口模板匹配
         public static void SlideOnce(int[,] newP,int[,] oldP,int times,List<float> scoreList,List<(int left, int top, int w, int h)> scoreInfoList)
@@ -475,7 +444,7 @@ namespace NavigationViewExample.Pages
             string[] files = Directory.GetFiles(pathDaiShiBie).Where(f => exts.Contains(Path.GetExtension(f).ToLower())).ToArray();
             await Task.WhenAll(files.Select(file => Task.Run(() =>
             {
-                using Bitmap bmp = (Bitmap)Image.FromFile(file);
+                using Bitmap bmp = (Bitmap)System.Drawing.Image.FromFile(file);
                 int h = bmp.Height;
                 int w = bmp.Width;
                 int total = h * w;                 // H×W
@@ -507,7 +476,49 @@ namespace NavigationViewExample.Pages
         }
         //滑动窗口代码
         [DllImport("CLMatch.dll", EntryPoint = "SlideOnce",CallingConvention = CallingConvention.Cdecl)]
+        private static extern int SlideOnceauto(int[] bigImg, int bigH, int bigW, int[] tplImg, int tplH, int tplW, [Out] float[] scoreBuf, [Out] int[] infoBuf);
+        [DllImport("CLMatch.dll", EntryPoint = "SlideOnce", CallingConvention = CallingConvention.Cdecl)]
         private static extern int SlideOnce(int[] bigImg, int bigH, int bigW,int[] tplImg, int tplH, int tplW,int times,[Out] float[] scoreBuf,[Out] int[] infoBuf);
+        private int CNNnetWork = 0;
+        private async void RunSlide_Click_auto(object sender, RoutedEventArgs e)
+        {
+            if (CNNnetWork == 0)
+            {
+                CNNnetWork = 1; // 打开滑动窗口识别
+                try
+                {
+                    var FFTList = await Task.Run(() =>
+                    Directory.EnumerateFiles(FeaturesFolder, "*.txt", SearchOption.AllDirectories).ToList());
+                    for (int i = 0; i < FFTList.Count - 1; i++)
+                    {
+                        List<int> FFTValues = File.ReadAllText(FFTList[i]).Split(',')
+                            .Select(s => s.Trim())
+                            .Where(s => !string.IsNullOrEmpty(s))
+                            .Select(int.Parse).ToList();
+                        int ret = await Task.Run(() => SlideOnceauto(CatchWidth * CatchHeight, bigH, bigW, tplImg, tplH, tplW, scoreBuf, infoBuf));
+                        if (ret == 0)
+                        {
+                            MessageBox.Show($"SlideOnce OK. Top-1 Score = {scoreBuf[0]:F3}");
+                        }
+                        else
+                        {
+                            CNNnetWork = 0; // 关闭滑动窗口识别
+                            MessageBox.Show($"SlideOnce Failed, err = {ret}", "Error");
+                        }
+                    }
+                }
+                catch (DllNotFoundException ex)
+                {
+                    CNNnetWork = 0; // 关闭滑动窗口识别
+                    MessageBox.Show(ex.Message, "DLL Missing");
+                }
+                catch (Exception ex)
+                {
+                    CNNnetWork = 0; // 关闭滑动窗口识别
+                    MessageBox.Show(ex.ToString(), "Unhandled");
+                }
+            }
+        }
         private async void RunSlide_Click(object sender, RoutedEventArgs e)
         {
             try
