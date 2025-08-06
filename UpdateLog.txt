@@ -1,4 +1,7 @@
 === ===
+2025/8/06Wed:
+1.增加了可变形卷积V2的OpenCL算法接口
+=== ===
 2025/8/04Mon:
 1.继续完善WPF的界面交互
 2.将RGB实时矩阵获取从C++改到在Csharp中获取(因为C++属实过于难维护)
@@ -29,6 +32,7 @@ const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, fl
 === ===
 2025/06/08/sun:
 实现了wpf使用脚本，以及完成了部分词元生成。
+
 
 
 
