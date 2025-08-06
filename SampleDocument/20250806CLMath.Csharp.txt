@@ -1,0 +1,24 @@
+[DllImport("CLMath.dll", CallingConvention=CallingConvention.Cdecl)]
+static extern int DeformableMatchV2(
+    int[] tplData, int tplH, int tplW,
+    int[] srcData, int srcH, int srcW,
+    [Out] float[] scoreBuf,
+    [Out] int[]   infoBuf);
+int tplH = 50, tplW = 30;
+int srcH = 200, srcW = 300;
+int[] tplData = LoadLinearRgbMatrix(tplImage, tplH, tplW);
+int[] srcData = LoadLinearRgbMatrix(srcImage, srcH, srcW);
+
+float[] score = new float[1];
+int[]   info  = new int[4]; // x, y, w, h
+
+int ret = DeformableMatchV2(
+    tplData, tplH, tplW,
+    srcData, srcH, srcW,
+    score, info);
+
+if (ret == 1)
+{
+    Console.WriteLine(
+      $"Best match @ X={info[0]}, Y={info[1]}, W={info[2]}, H={info[3]}, Score={score[0]:F2}%");
+}
