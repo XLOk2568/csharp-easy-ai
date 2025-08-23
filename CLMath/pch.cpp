@@ -7,6 +7,8 @@
 #include <cstring>   // memcpy
 #include <cmath>
 #include <algorithm>          // ★ std::max 用到
+// 主机侧安全读取 4×int 的结构体，避免 cl_int4 不同编译器成员布局差异
+typedef struct { int x; int y; int z; int w; } int4_host;
 constexpr auto CL_DEVICE_NAME = 0x102B;
 
 // 内部全局状态
@@ -22,18 +24,11 @@ static cl_kernel                        g_mulKer  = nullptr;
 static cl_kernel                        g_divKer  = nullptr;
 static std::mutex                       g_initMutex;
 static cl_kernel                        g_slideKer=nullptr;
-static cl_kernel                        g_deformV2Ker = nullptr;
+static cl_kernel                        g_deformAutoV2Ker = nullptr; // 新增：自动可变形V2核
 extern bool  LoadOpenCL();
 extern void  UnloadOpenCL();
 using cl_float2 = struct { float x, y; };
-static bool                g_inited = false;
 static std::mutex          g_initMtx;
-static cl_platform_id      g_platform = nullptr;
-static std::vector<cl_device_id> g_devices;
-static cl_context          g_context = nullptr;
-static std::vector<cl_command_queue> g_queues;
-static cl_program          g_program = nullptr;
-static cl_kernel           g_deformV2Ker = nullptr;
 // OpenCL 内核源码
 static constexpr const char* kCLSrc = R"CLC(
 __kernel void add_k(int n, __global const double* a, __global double* r){
@@ -88,24 +83,24 @@ __kernel void slide_k(
     scores[gid] = 1.f - (float)sad / (float)maxSAD;
     infos [gid] = (int4)(x0, y0, tplW, tplH);
 }
-// 变形滑窗v2：使用偏移和掩码
-__kernel void deform_slide_v2_k(
-    __global const int*   bigImg,  int bigW, int bigH,
-    __global const int*   tplImg,  int tplW, int tplH,
+// 自动可变形卷积v2：每个模板像素在局部半径内(默认±1)寻找最小差作为位移匹配代价，再累积SAD
+__kernel void deform_auto_v2_k(
+    __global const int* bigImg,  int bigW, int bigH,
+    __global const int* tplImg,  int tplW, int tplH,
     int rows, int cols, int strideX, int strideY, int maxSAD,
-    __global const float2* offsets,  // [rows*cols*tplW*tplH]
-    __global const float*  masks,    // [rows*cols*tplW*tplH]
-    __global float*        scores,   // [rows*cols]
-    __global int4*         infos)    // [rows*cols]
+    int maxShift,                      // 局部位移半径，建议 1 或 2
+    __global float* scores,            // [rows*cols]
+    __global int4*  infos)             // [rows*cols]
 {
     int gid   = get_global_id(0);
     int total = rows * cols;
     if (gid >= total) return;
+
     int rowIdx   = gid / cols;
     int colIdx   = gid % cols;
     int y0_base  = rowIdx * strideY;
     int x0_base  = colIdx * strideX;
-    // 越界直接标记
+
     if (y0_base + tplH > bigH || x0_base + tplW > bigW) {
         scores[gid] = -1.f;
         infos[gid]  = (int4)(0,0,0,0);
@@ -113,30 +108,22 @@ __kernel void deform_slide_v2_k(
     }
     int tplPix = tplW * tplH;
     float sad  = 0.f;
+    // 对模板每个像素，允许在大图局部邻域内搜索最小差 (可变形对齐的近似)
     for (int u = 0; u < tplH; ++u) {
         for (int v = 0; v < tplW; ++v) {
-            int idxOff = gid * tplPix + u * tplW + v;
-            float2 off = offsets[idxOff];
-            float  m   = masks  [idxOff];
-            // 浮点采样位置
-            float yf = y0_base + u + off.y;
-            float xf = x0_base + v + off.x;
-            int x0 = clamp((int)floor(xf), 0, bigW - 1);
-            int x1 = clamp(x0 + 1,         0, bigW - 1);
-            int y0 = clamp((int)floor(yf), 0, bigH - 1);
-            int y1 = clamp(y0 + 1,         0, bigH - 1);
-            float dx = xf - x0, dy = yf - y0;
-            float v00 = (float)bigImg[y0 * bigW + x0];
-            float v10 = (float)bigImg[y0 * bigW + x1];
-            float v01 = (float)bigImg[y1 * bigW + x0];
-            float v11 = (float)bigImg[y1 * bigW + x1];
-            // 双线性插值
-            float sample = v00*(1-dx)*(1-dy)
-                         + v10*dx*(1-dy)
-                         + v01*(1-dx)*dy
-                         + v11*dx*dy;
             float tgt = (float)tplImg[u * tplW + v];
-            sad += fabs(sample - tgt) * m;
+
+            float bestLocal = FLT_MAX;
+            for (int dy = -maxShift; dy <= maxShift; ++dy) {
+                for (int dx = -maxShift; dx <= maxShift; ++dx) {
+                    int yy = clamp(y0_base + u + dy, 0, bigH - 1);
+                    int xx = clamp(x0_base + v + dx, 0, bigW - 1);
+                    float val = (float)bigImg[yy * bigW + xx];
+                    float diff = fabs(val - tgt);
+                    bestLocal = fmin(bestLocal, diff);
+                }
+            }
+            sad += bestLocal;
         }
     }
     float score = 1.f - sad / (float)maxSAD;
@@ -156,7 +143,6 @@ static void EnsureOpenCLLoaded()
         loaded = true;
     }
 }
-
 // 单次初始化
 static void InitOpenCL()
 {
@@ -191,7 +177,7 @@ static void InitOpenCL()
     g_mulKer = clCreateKernel(g_program, "mul_k", nullptr);
     g_divKer = clCreateKernel(g_program, "div_k", nullptr);
     g_slideKer = clCreateKernel(g_program, "slide_k", nullptr);
-    g_deformV2Ker = clCreateKernel(g_program, "deform_slide_v2_k", nullptr);// 创建变形滑窗核v2
+    g_deformAutoV2Ker = clCreateKernel(g_program, "deform_auto_v2_k", nullptr);
     g_inited = true;
 }
 // 调用任意 kernel
@@ -254,67 +240,32 @@ static double RunKernel(cl_kernel kernel,
 
     return result;
 }
-
 extern "C"
 {
-    // 输入：
-//   tplData[tplH*tplW] —— 模板线性矩阵
-//   srcData[srcH*srcW] —— 搜索图线性矩阵
-// 输出：
-//   outScore[1]        —— 最佳得分（百分制，保留两位小数）
-//   outInfo[4]         —— {x, y, w, h}，都基于原图坐标
-    int __cdecl DeformableMatchV2(
-        const int* tplData, int tplH, int tplW,
-        const int* srcData, int srcH, int srcW,
-        float* outScore,
-        int* outInfo)
-    {
-        return RunDeformV2(srcData, srcH, srcW,
-            tplData, tplH, tplW,
-            outScore, outInfo);
-    }
-    int __cdecl networkhalfsize(const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, float* scoreBuf, int* infoBuf)
-    {
-		return networkhalfsize(bigImg, bigH, bigW, tplImg, tplH, tplW, scoreBuf, infoBuf);
-    }
-    int __cdecl SlideOnce(const int* bigImg, int bigH, int bigW,const int* tplImg, int tplH, int tplW,int times,float* scoreBuf,int* infoBuf)
-    {
-        return SlideOnce(bigImg, bigH, bigW, tplImg, tplH, tplW, times, scoreBuf, infoBuf);
-    }
-// 返回设备数量
+    // 返回设备数量
     int __cdecl GetDeviceNamesCount()
     {
-    InitOpenCL();
-    return (int)g_devices.size();
+        InitOpenCL();
+        return (int)g_devices.size();
     }
-
-// 获取设备名称
+    // 获取设备名称
     int __cdecl GetDeviceNames(int index, char* buf, int bufSize)
     {
-    InitOpenCL();
-    if (index < 0 || index >= (int)g_devices.size())
+    
+        InitOpenCL();
+        if (index < 0 || index >= (int)g_devices.size())
         return 0;
-
-    size_t len = 0;
-    clGetDeviceInfo(g_devices[index],
-                    CL_DEVICE_NAME,
-                    0, nullptr,
-                    &len);
-
-    std::vector<char> tmp(len);
-    clGetDeviceInfo(g_devices[index],
-                    CL_DEVICE_NAME,
-                    len,
-                    tmp.data(),
-                    nullptr);
-    int toCopy = len < static_cast<size_t>(bufSize - 1)
-        ? static_cast<int>(len)
-        : (bufSize - 1);
-    memcpy(buf, tmp.data(), toCopy);
-    buf[toCopy] = '\0';
-    return toCopy;
+        size_t len = 0;
+        clGetDeviceInfo(g_devices[index],CL_DEVICE_NAME,0, nullptr,&len);
+        std::vector<char> tmp(len);
+        clGetDeviceInfo(g_devices[index],CL_DEVICE_NAME,len,tmp.data(),nullptr);
+        int toCopy = len < static_cast<size_t>(bufSize - 1)
+        ? static_cast<int>(len): (bufSize - 1);
+        memcpy(buf, tmp.data(), toCopy);
+        buf[toCopy] = '\0';
+        return toCopy;
     }
-// 四则运算
+    // 四则运算
     double __cdecl CL_Add(const double* arr, int count, int deviceIndex)
     {
     return RunKernel(g_addKer, arr, count, deviceIndex);
@@ -326,7 +277,6 @@ extern "C"
     DisposeOpenCL();
 
     }
-
     double __cdecl CL_Mul(const double* arr, int count, int deviceIndex)
     {
     return RunKernel(g_mulKer, arr, count, deviceIndex);
@@ -337,206 +287,163 @@ extern "C"
     return RunKernel(g_divKer, arr, count, deviceIndex);    
     DisposeOpenCL();
     }
-//网络 手动设置 滑动次数
-    static int RunSlideKernel(const int* bigImg, int bigH, int bigW,const int* tplImg, int tplH, int tplW,int times,float* scoreBuf,int* infoBuf)
+    extern "C" __declspec(dllexport) int __cdecl NetWorkUsingV2(
+        const int* tplList, int tplCount, int tplWidth,
+        const int* bigList, int bigCount, int bigWidth,
+        const int* deviceList, int deviceCount,           // 多设备 ID 数组
+        const int* oldRegion,                             // 上次匹配区域 (x,y,w,h)
+        int* outX, int* outY, int* outW, int* outH, float* outScore)
     {
-        InitOpenCL();
-    /* 0) 行列 / 步幅计算 */
-        int rows = (int)ceil(sqrt((double)times));
-     int cols = (int)ceil((double)times / rows);
-      int strideY = (rows <= 1) ? (bigH - tplH) : (bigH - tplH) / (rows - 1);
-      int strideX = (cols <= 1) ? (bigW - tplW) : (bigW - tplW) / (cols - 1);
-       int tplPix = tplH * tplW;
-       int maxSAD = 255 * tplPix;
-      int total = rows * cols;
-       /* 1) 设备缓冲区 */
-       size_t bigSz = sizeof(int) * bigH * bigW;
-       size_t tplSz = sizeof(int) * tplH * tplW;
-      size_t scoSz = sizeof(float) * total;
-      size_t infSz = sizeof(cl_int4) * total;
-      cl_mem dBig = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, bigSz, (void*)bigImg, nullptr);
-      cl_mem dTpl = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, tplSz, (void*)tplImg, nullptr);
-      cl_mem dSco = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, scoSz, nullptr, nullptr);
-      cl_mem dInf = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, infSz, nullptr, nullptr);
-    /* 2) 设参 */
-       int idx = 0;
-      clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dBig);
-       clSetKernelArg(g_slideKer, idx++, sizeof(int), &bigW);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &bigH);
-        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dTpl);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &tplW);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &tplH);
-      clSetKernelArg(g_slideKer, idx++, sizeof(int), &rows);
-       clSetKernelArg(g_slideKer, idx++, sizeof(int), &cols);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &strideX);
-       clSetKernelArg(g_slideKer, idx++, sizeof(int), &strideY);
-      clSetKernelArg(g_slideKer, idx++, sizeof(int), &maxSAD);
-       clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dSco);
-       clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dInf);
-    /* 3) 启动核并同步 */
-    size_t global = total;
-        clEnqueueNDRangeKernel(g_queues[0], g_slideKer, 1, nullptr, &global, nullptr, 0, nullptr, nullptr);
-         clFinish(g_queues[0]);
-    /* 4) 取回结果 */
-        std::vector<float>   tmpSco(total);
-        std::vector<cl_int4> tmpInf(total);
-        clEnqueueReadBuffer(g_queues[0], dSco, CL_TRUE, 0, scoSz, tmpSco.data(), 0, nullptr, nullptr);
-        clEnqueueReadBuffer(g_queues[0], dInf, CL_TRUE, 0, infSz, tmpInf.data(), 0, nullptr, nullptr);
-
-        clReleaseMemObject(dBig);
-        clReleaseMemObject(dTpl);
-        clReleaseMemObject(dSco);
-        clReleaseMemObject(dInf);
-
-    /* 5) 过滤无效窗 */
-         int valid = 0;
-        for (int i = 0; i < total; ++i)
+        try
         {
-            if (tmpSco[i] < 0) continue;
-            scoreBuf[valid] = tmpSco[i];
-            infoBuf[valid * 4 + 0] = tmpInf[i].s[0];
-            infoBuf[valid * 4 + 1] = tmpInf[i].s[1];
-            infoBuf[valid * 4 + 2] = tmpInf[i].s[2];
-            infoBuf[valid * 4 + 3] = tmpInf[i].s[3];
-            ++valid;
-        }
-    return valid;
-    }
-    //自动半 特征图网络
-    static int RunSlideKernelHalf(const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, float* scoreBuf, int* infoBuf)
-    {
-		InitOpenCL();
-        int strideY = (tplH / 2, 1);          // tpl 高的一半
-        int strideX = (tplW / 2, 1);       // tpl 宽的一半 9为什么没写max,因为不可能有傻逼拿长或者宽为1的图吧,真有的话,“哥写的不是算法，是防傻逼框架。”0
-        int rows = (bigH - tplH) / strideY + 1;      
-        int cols = (bigW - tplW) / strideX + 1;
-        int total = rows * cols;
-        int tplPix = tplH * tplW;
-        int maxSAD = 255 * tplPix;
-        size_t bigSz = sizeof(int) * bigH * bigW;
-        size_t tplSz = sizeof(int) * tplH * tplW;
-        size_t scoSz = sizeof(float) * total;
-        size_t infSz = sizeof(cl_int4) * total;
-        cl_mem dBig = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, bigSz, (void*)bigImg, nullptr);
-        cl_mem dTpl = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, tplSz, (void*)tplImg, nullptr);
-        cl_mem dSco = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, scoSz, nullptr, nullptr);
-        cl_mem dInf = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, infSz, nullptr, nullptr);
-        int idx = 0;
-        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dBig);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &bigW);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &bigH);
-        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dTpl);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &tplW);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &tplH);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &rows);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &cols);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &strideX);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &strideY);
-        clSetKernelArg(g_slideKer, idx++, sizeof(int), &maxSAD);
-        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dSco);
-        clSetKernelArg(g_slideKer, idx++, sizeof(cl_mem), &dInf);
-        size_t global = total;
-        clEnqueueNDRangeKernel(g_queues[0], g_slideKer, 1, nullptr, &global, nullptr, 0, nullptr, nullptr);
-        clFinish(g_queues[0]);
-        std::vector<float>   tmpSco(total);
-        std::vector<cl_int4> tmpInf(total);
-        clEnqueueReadBuffer(g_queues[0], dSco, CL_TRUE, 0, scoSz, tmpSco.data(), 0, nullptr, nullptr);
-        clEnqueueReadBuffer(g_queues[0], dInf, CL_TRUE, 0, infSz, tmpInf.data(), 0, nullptr, nullptr);
-        clReleaseMemObject(dBig); clReleaseMemObject(dTpl);
-        clReleaseMemObject(dSco); clReleaseMemObject(dInf);
-        int valid = 0;
-        for (int i = 0; i < total; ++i)
-        {
-            if (tmpSco[i] < 0) continue;
-            scoreBuf[valid] = tmpSco[i];
-            infoBuf[valid * 4 + 0] = tmpInf[i].s[0];
-            infoBuf[valid * 4 + 1] = tmpInf[i].s[1];
-            infoBuf[valid * 4 + 2] = tmpInf[i].s[2];
-            infoBuf[valid * 4 + 3] = tmpInf[i].s[3];
-            ++valid;
-        }
-        return valid;
-		DisposeOpenCL();
-    }
-    // 真正跑 V2 kernel 并选出最佳结果
-    static int RunDeformV2(
-        const int* bigImg, int bigH, int bigW,
-        const int* tplImg, int tplH, int tplW,
-        float* outScore, int* outInfo  // outInfo 长度>=4，保存 {x,y,w,h}
-    )
-    {
-        InitOpenCL();
-        // 计算滑窗参数
-        int rows = bigH - tplH + 1;
-        int cols = bigW - tplW + 1;
-        int total = rows * cols;
-        int strideY = 1;
-        int strideX = 1;
-        int tplPix = tplW * tplH;
-        int maxSAD = 255 * tplPix;
-        // 申请 GPU 缓冲
-        size_t bigSz = sizeof(int) * bigH * bigW;
-        size_t tplSz = sizeof(int) * tplPix;
-        size_t offSz = sizeof(cl_float2) * total * tplPix;
-        size_t maskSz = sizeof(float) * total * tplPix;
-        size_t scoSz = sizeof(float) * total;
-        size_t infSz = sizeof(cl_int4) * total;
-        cl_mem dBig = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, bigSz, (void*)bigImg, nullptr);
-        cl_mem dTpl = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, tplSz, (void*)tplImg, nullptr);
-        // 默认全零偏移、全1掩码
-        std::vector<cl_float2> offsets(total * tplPix, { 0.f,0.f });
-        std::vector<float>      masks(total * tplPix, 1.f);
-        cl_mem dOff = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, offSz, offsets.data(), nullptr);
-        cl_mem dMask = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, maskSz, masks.data(), nullptr);
-        cl_mem dSco = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, scoSz, nullptr, nullptr);
-        cl_mem dInf = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, infSz, nullptr, nullptr);
-        // 绑定 kernel 参数
-        int idx = 0;
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(cl_mem), &dBig);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &bigW);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &bigH);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(cl_mem), &dTpl);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &tplW);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &tplH);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &rows);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &cols);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &strideX);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &strideY);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(int), &maxSAD);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(cl_mem), &dOff);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(cl_mem), &dMask);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(cl_mem), &dSco);
-        clSetKernelArg(g_deformV2Ker, idx++, sizeof(cl_mem), &dInf);
-        // 启动并同步
-        size_t global = total;
-        clEnqueueNDRangeKernel(g_queues[0], g_deformV2Ker, 1, nullptr, &global, nullptr, 0, nullptr, nullptr);
-        clFinish(g_queues[0]);
-        // 读回结果，选最大
-        std::vector<float>   scos(total);
-        std::vector<cl_int4> infos(total);
-        clEnqueueReadBuffer(g_queues[0], dSco, CL_TRUE, 0, scoSz, scos.data(), 0, nullptr, nullptr);
-        clEnqueueReadBuffer(g_queues[0], dInf, CL_TRUE, 0, infSz, infos.data(), 0, nullptr, nullptr);
-        //释放 GPU 资源
-        for (auto mem : { dBig,dTpl,dOff,dMask,dSco,dInf })
-            clReleaseMemObject(mem);
-        // 在 host 端选出最佳
-        float bestScore = -1.f;
-        int   bestIdx = -1;
-        for (int i = 0; i < total; ++i) {
-            if (scos[i] > bestScore) {
-                bestScore = scos[i];
-                bestIdx = i;
+            // 基础校验
+            if (!tplList || !bigList || !deviceList || deviceCount <= 0 ||
+                !outX || !outY || !outW || !outH || !outScore) return 0;
+            if (tplWidth <= 0 || bigWidth <= 0 || tplCount <= 0 || bigCount <= 0) return 0;
+            if (tplCount % tplWidth != 0 || bigCount % bigWidth != 0) return 0;
+            const int tplH = tplCount / tplWidth;
+            const int tplW = tplWidth;
+            const int bigH = bigCount / bigWidth;
+            const int bigW = bigWidth;
+            if (tplW > bigW || tplH > bigH) return 0;
+            // 计算搜索区域
+            int searchX = 0, searchY = 0, searchW = bigW, searchH = bigH;
+            if (oldRegion && !(oldRegion[0] == 0 && oldRegion[1] == 0 &&
+                oldRegion[2] == 0 && oldRegion[3] == 0))
+            {
+                const int margin = 20;
+                // 计算 searchX
+                searchX = oldRegion[0] - margin;
+                if (searchX < 0)
+                {
+                    searchX = 0;
+                }
+                searchY = oldRegion[1] - margin;
+                if (searchY < 0)
+                {
+                    searchY = 0;
+                }
+                searchW = oldRegion[2] + margin * 2;
+                if (searchW > bigW)
+                {
+                    searchW = bigW;
+                }
+                searchH = oldRegion[3] + margin * 2;
+                if (searchH > bigH)
+                {
+                    searchH = bigH;
+                }
             }
+            InitOpenCL();
+            if (!g_deformAutoV2Ker) return 0;
+            const int tplPix = tplW * tplH;
+            const int maxSAD = tplPix * 255;
+            const int strideX = 1, strideY = 1;
+            int maxShift = 1;
+            float bestScore = -1.0e30f;
+            cl_int4 bestInfo = { 0,0,0,0 };
+            // 遍历设备
+            for (int di = 0; di < deviceCount; ++di) {
+                int devIndex = deviceList[di];
+                if (devIndex < 0 || devIndex >= (int)g_devices.size()) continue;
+                // 提取当前搜索区域数据
+                std::vector<int> bigRegion(searchW * searchH);
+                for (int r = 0; r < searchH; ++r) {
+                    memcpy(&bigRegion[r * searchW],
+                        &bigList[(searchY + r) * bigW + searchX],
+                        sizeof(int) * searchW);
+                }
+                const int rows = searchH - tplH + 1;
+                const int cols = searchW - tplW + 1;
+                if (rows <= 0 || cols <= 0) continue;
+                const int total = rows * cols;
+                size_t bytesTpl = sizeof(int) * tplPix;
+                size_t bytesBig = sizeof(int) * (searchW * searchH);
+                size_t bytesScores = sizeof(float) * total;
+                size_t bytesInfos = sizeof(cl_int4) * total;
+                cl_int err;
+                cl_mem bufBig = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, bytesBig, bigRegion.data(), &err);
+                if (err != CL_SUCCESS) continue;
+                cl_mem bufTpl = clCreateBuffer(g_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, bytesTpl, (void*)tplList, &err);
+                if (err != CL_SUCCESS) { clReleaseMemObject(bufBig); continue; }
+                cl_mem bufScores = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, bytesScores, nullptr, &err);
+                if (err != CL_SUCCESS) { clReleaseMemObject(bufBig); clReleaseMemObject(bufTpl); continue; }
+                cl_mem bufInfos = clCreateBuffer(g_context, CL_MEM_WRITE_ONLY, bytesInfos, nullptr, &err);
+                if (err != CL_SUCCESS) { clReleaseMemObject(bufBig); clReleaseMemObject(bufTpl); clReleaseMemObject(bufScores); continue; }
+                // 设置 kernel 参数
+                clSetKernelArg(g_deformAutoV2Ker, 0, sizeof(cl_mem), &bufBig);
+                clSetKernelArg(g_deformAutoV2Ker, 1, sizeof(int), &searchW);
+                clSetKernelArg(g_deformAutoV2Ker, 2, sizeof(int), &searchH);
+                clSetKernelArg(g_deformAutoV2Ker, 3, sizeof(cl_mem), &bufTpl);
+                clSetKernelArg(g_deformAutoV2Ker, 4, sizeof(int), &tplW);
+                clSetKernelArg(g_deformAutoV2Ker, 5, sizeof(int), &tplH);
+                clSetKernelArg(g_deformAutoV2Ker, 6, sizeof(int), &rows);
+                clSetKernelArg(g_deformAutoV2Ker, 7, sizeof(int), &cols);
+                clSetKernelArg(g_deformAutoV2Ker, 8, sizeof(int), &strideX);
+                clSetKernelArg(g_deformAutoV2Ker, 9, sizeof(int), &strideY);
+                clSetKernelArg(g_deformAutoV2Ker, 10, sizeof(int), &maxSAD);
+                clSetKernelArg(g_deformAutoV2Ker, 11, sizeof(int), &maxShift);
+                clSetKernelArg(g_deformAutoV2Ker, 12, sizeof(cl_mem), &bufScores);
+                clSetKernelArg(g_deformAutoV2Ker, 13, sizeof(cl_mem), &bufInfos);
+                size_t global = (size_t)total;
+                clEnqueueNDRangeKernel(g_queues[devIndex], g_deformAutoV2Ker, 1, nullptr, &global, nullptr, 0, nullptr, nullptr);
+                clFinish(g_queues[devIndex]);
+                // 读取结果
+                std::vector<float>    hostScores((size_t)total);
+                std::vector<int4_host> hostInfos((size_t)total);
+                // 注意：按主机侧结构体尺寸回读
+                clEnqueueReadBuffer(g_queues[devIndex], bufScores, CL_TRUE, 0,
+                    sizeof(float) * (size_t)total, hostScores.data(), 0, nullptr, nullptr);
+                clEnqueueReadBuffer(g_queues[devIndex], bufInfos, CL_TRUE, 0,
+                    sizeof(int4_host) * (size_t)total, hostInfos.data(), 0, nullptr, nullptr);
+                // 选最佳（基础 for + if）
+                float bestScore = -1.0e30f;
+                int bestX = 0;
+                int bestY = 0;
+                for (int i = 0; i < total; ++i)
+                {
+                    float s = hostScores[i];
+                    if (s > bestScore)
+                    {
+                        bestScore = s;
+                        bestX = hostInfos[i].x; // 只信任 x/y
+                        bestY = hostInfos[i].y;
+                    }
+                }
+                // 无有效结果
+                if (bestScore <= -1.0e29f)
+                {
+                    clReleaseMemObject(bufInfos);
+                    clReleaseMemObject(bufScores);
+                    clReleaseMemObject(bufTpl);
+                    clReleaseMemObject(bufBig);
+                    return 0;
+                }
+                // 安全夹取位置到图像内（基础 if）
+                int maxX = bigW - tplW;
+                int maxY = bigH - tplH;
+                if (maxX < 0) maxX = 0;
+                if (maxY < 0) maxY = 0;
+                if (bestX < 0) bestX = 0;
+                if (bestX > maxX) bestX = maxX;
+                if (bestY < 0) bestY = 0;
+                if (bestY > maxY) bestY = maxY;
+                // 输出（宽高一律用模板尺寸，避免 4000+ 离谱值）
+                *outX = bestX;
+                *outY = bestY;
+                *outW = tplW;
+                *outH = tplH;
+                // 分数夹取到 [0,1]（基础 if）
+                if (bestScore < 0.0f) bestScore = 0.0f;
+                if (bestScore > 1.0f) bestScore = 1.0f;
+                *outScore = bestScore;
+                return 1;
+            }
+        }                     
+        catch (...)           
+        {              
+            return 0;      
         }
-        if (bestIdx < 0) return 0;
-        // 输出百分制保留两位小数
-        outScore[0] = roundf(bestScore * 10000.f) / 100.f;
-        // 输出 x,y,w,h
-        outInfo[0] = infos[bestIdx].s[0];
-        outInfo[1] = infos[bestIdx].s[1];
-        outInfo[2] = infos[bestIdx].s[2];
-        outInfo[3] = infos[bestIdx].s[3];
-        return 1;
     }
 void __cdecl DisposeOpenCL()
 {
@@ -550,6 +457,7 @@ void __cdecl DisposeOpenCL()
     clReleaseKernel(g_subKer);
     clReleaseKernel(g_mulKer);
     clReleaseKernel(g_divKer);
+    if (g_deformAutoV2Ker) clReleaseKernel(g_deformAutoV2Ker);    // 释放自动可变形卷积
     g_addKer = g_subKer = g_mulKer = g_divKer = nullptr;
     // 释放 program
     if (g_program) clReleaseProgram(g_program);
