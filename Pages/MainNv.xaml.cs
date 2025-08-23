@@ -18,6 +18,8 @@ namespace NavigationViewExample.Pages
         public Pages.HomePage Page_Home = new Pages.HomePage();
         public Pages.AboutPage About = new Pages.AboutPage();
         public Pages.GuaGua Page_GuaGua = new Pages.GuaGua();
+        public Pages.VPN VPN_ = new Pages.VPN();
+        public Pages.Set Set_ = new Pages.Set();
         private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             var item = sender.SelectedItem;
@@ -30,6 +32,14 @@ namespace NavigationViewExample.Pages
             if (item == NavigationViewItem_GG)
             {
                 page = Page_GuaGua;
+            }
+            if (item == NavigationViewItem_VPN) 
+            {
+                page = VPN_;
+            }
+            if (item == NvSet)
+            {
+                page = Set_;
             }
             else if (item == Aboutb)
             {

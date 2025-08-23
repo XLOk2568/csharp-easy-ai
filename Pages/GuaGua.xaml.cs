@@ -1,4 +1,5 @@
 ﻿using iNKORE.UI.WPF.Modern.Controls;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -28,39 +29,17 @@ namespace NavigationViewExample.Pages
             InitializeComponent();
             _proc = HookCallback;//鼠标检测                             
         }
-        private string pathKeep2 = ""; // 用于存储选择的保存路径
+        public static string pathKeep2 = ""; // 用于存储选择的保存路径
         private List<int> listShiShiiBuHuo=new List<int>();//     转成RGB矩阵的 中间 数据
-        private async void Button_Click(object sender, RoutedEventArgs e)
+        private  void Button_Click(object sender, RoutedEventArgs e)
         {
-            string path = "";
-            string pathKeep = "";
-            var dialog = new CommonOpenFileDialog
+            if (PCHW == 0)
             {
-                IsFolderPicker = true
-            };
-            if (dialog.ShowDialog() == CommonFileDialogResult.Ok)
-            {
-                path = dialog.FileName;
-                var dialog2 = new CommonOpenFileDialog //以下是选择保存的路径
-                {
-                    IsFolderPicker = true
-                };
-                if (dialog2.ShowDialog() == CommonFileDialogResult.Ok)
-                {
-                    pathKeep = dialog2.FileName;
-                    MessageBoxResult f1 = MessageBox.Show("确认:\n" + $"要处理的文件路径为{path}" + "\n" + $"要保存的文件路径为{pathKeep}", "Are you sure?", MessageBoxButton.OKCancel, MessageBoxImage.Information);
-                    if (f1 == MessageBoxResult.OK)
-                    {
-                        pathKeep2 = pathKeep; // 保存选择的路径
-                        ring.Visibility = Visibility.Visible;
-                        await ImageFeatures(path, pathKeep);
-                        MessageBox.Show($"CSV 文件已保存到: {pathKeep}", "完成", MessageBoxButton.OK, MessageBoxImage.Information);
-                        ring.Visibility = Visibility.Collapsed;
-                    }
-                }
+                PCHW = 1;
+                var gauguacfWin = new GuaGuaCF();
+                gauguacfWin.Show();
             }
         }
-
         private void Page_Loaded(object sender, RoutedEventArgs e)
         {
             ring.Visibility = Visibility.Collapsed;
@@ -116,6 +95,7 @@ namespace NavigationViewExample.Pages
         private int CatchWidth = 900;
         private int CatchHeight = 600;
         private bool _running =false; // 控制捕获循环的标志
+        //开启外挂
         private  void Button_Click2(object sender, RoutedEventArgs e)
         {
             if (PCHW == 0)
@@ -134,6 +114,13 @@ namespace NavigationViewExample.Pages
                 PCHW = 0;
             }
         }
+        // 实时计算 网络
+        [DllImport("CLMath.dll", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int deform_slide_v2_k(
+            int[] tpl, int tplWidth, int tplHeight,
+            int[] big, int bigWidth, int bigHeight,
+            int[] deviceList, int deviceCount,
+            out int outX, out int outY, out int outW, out int outH, out float score);
         private async Task CaptureLoopAsync()
         {
             while (_running == true)
@@ -145,24 +132,6 @@ namespace NavigationViewExample.Pages
                 }
                 int stride = width * 2;
                 int bufSize = height * stride;
-                var RGBMatrix = new int[height,width];
-                byte[] rawData = new byte[bufSize];
-                Marshal.Copy(bufPtr, rawData, 0, bufSize);
-                for (int y = 0; y < height; y++)
-                {
-                    for (int x = 0; x < width; x++)
-                    {
-                        int index = y * stride + x * 2;
-                        ushort pixel565 = BitConverter.ToUInt16(rawData, index);
-                        int r = (pixel565 >> 11) & 0x1F;
-                        int g = (pixel565 >> 5) & 0x3F;
-                        int b = pixel565 & 0x1F;
-                        r = (r << 3) | (r >> 2);
-                        g = (g << 2) | (g >> 4);
-                        b = (b << 3) | (b >> 2);
-                        RGBMatrix[y, x] = (r << 16) | (g << 8) | b;
-                    }
-                }  //获取实时 RGB矩阵
                 if (Sriof == 1)
                 {
                     var bmp = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr565, null, bufPtr, bufSize, stride);
@@ -172,8 +141,18 @@ namespace NavigationViewExample.Pages
                         SrI.Source = bmp;
                     });
                 }
+                // 调用
+                int [] bigData = new int[width * height];
+                int[] tplData = new int [ width * height];
+                int tplWidth = 0;
+                int bigWidth = 0;
+                int ok = deform_slide_v2_k(
+                    tplData, tplWidth, tplData.Length / tplWidth,
+                    bigData, bigWidth, bigData.Length / bigWidth,
+                    new int[] { 0 }, 1,
+                    out int x, out int y, out int w, out int h, out float s);
                 FreeBuffer(bufPtr);
-                await Task.Delay(100);//循环间隔
+                await Task.Delay(100);
             }
         }
 
@@ -396,183 +375,9 @@ namespace NavigationViewExample.Pages
             await Task.WhenAll(mulTask);
             MessageBox.Show($"1 + 2 + 3 = {mulTask.Result}", "CL Add");
         }
-        // 示例的代码 c# 实现滑动窗口模板匹配
-        public static void SlideOnce(int[,] newP,int[,] oldP,int times,List<float> scoreList,List<(int left, int top, int w, int h)> scoreInfoList)
-        {
-            //--- 0) 尺寸常量 -------------------------------------------------------
-            int bigH = newP.GetLength(0);  //这个是  检测图  的尺寸
-            int bigW = newP.GetLength(1);
-            int winH = oldP.GetLength(0);   //这个是  模板  的尺寸
-            int winW = oldP.GetLength(1);
-            //--- 1) 由 times 推 stride --------------------------------------------//times控制滑动次数
-            int rows = (int)Math.Ceiling(Math.Sqrt(times));
-            int cols = (int)Math.Ceiling((double)times / rows);
-            int strideY = (rows <= 1)? bigH - winH : (bigH - winH) / (rows - 1);
-            int strideX = (cols <= 1)? bigW - winW: (bigW - winW) / (cols - 1);
-            //--- 2) 预计算 ---------------------------------------------------------
-            int winN = winH * winW;//  模板的像素数量
-            int maxPix = 255;
-            int maxSAD = maxPix * winN;
-            //--- 3) 核心单 for -----------------------------------------------------
-            int total = rows * cols;
-            for (int t = 0; t < total; t++)
-            {
-                // 3-A) 左上角
-                int rowIdx = t / cols;
-                int colIdx = t - rowIdx * cols;
-                int y0 = rowIdx * strideY;
-                int x0 = colIdx * strideX;
-                if (y0 + winH > bigH || x0 + winW > bigW)
-                {
-                    continue;    // 超界窗口丢弃
-                }
-                // 3-B) 计算 SAD
-                int sad = 0;
-                int k = 0;
-                for (; k < winN; k++)
-                {
-                    int u = k / winW;
-                    int v = k - u * winW;
-                    int y = y0 + u;
-                    int x = x0 + v;
-                    int a = newP[y, x];
-                    int b = oldP[u, v];
-                    int diff;
-                    if (a >= b)
-                    {
-                        diff = a - b;
-                    }
-                    else
-                    {
-                        diff = b - a;
-                    }
-                    sad += diff;
-                }
-                // 3-C) 归一化分数
-                float score = 1.0f - ((float)sad / maxSAD);
-                scoreList.Add(score);
-                scoreInfoList.Add((x0, y0, winW, winH));
-            }
-        }
-        // 提取图片的 RGB通道
-        public  static async Task  ImageFeatures(string pathDaiShiBie, string pathBaoCunShiBie)
-        {
-            if (!Directory.Exists(pathBaoCunShiBie))
-            {
-                Directory.CreateDirectory(pathBaoCunShiBie);
-            }
-            string[] exts = { ".png", ".jpg", ".jpeg", ".bmp" };
-            string[] files = Directory.GetFiles(pathDaiShiBie).Where(f => exts.Contains(Path.GetExtension(f).ToLower())).ToArray();
-            await Task.WhenAll(files.Select(file => Task.Run(() =>
-            {
-                using Bitmap bmp = (Bitmap)System.Drawing.Image.FromFile(file);
-                int h = bmp.Height;
-                int w = bmp.Width;
-                int total = h * w;                 // H×W
-                StringBuilder sb = new StringBuilder(total * 8); // 预估容量
-                for (int idx = 0; idx < total; idx++)
-                {
-                    int row = idx / w;
-                    int col = idx - row * w;
-                    System.Drawing.Color c = bmp.GetPixel(col, row); // System.Drawing.Color
-                    int r = c.A == 0 ? 0 : c.R;
-                    int g = c.A == 0 ? 0 : c.G;
-                    int b = c.A == 0 ? 0 : c.B;
-                    sb.Append(r); sb.Append(',');
-                    sb.Append(g); sb.Append(',');
-                    sb.Append(b);
-                    if (col == w - 1)
-                    {
-                        sb.AppendLine();            // 换行
-                    }
-                    else
-                    {
-                        sb.Append(',');             // 逗号
-                    }
-                }
-                string name = Path.GetFileNameWithoutExtension(file);
-                string outFile = Path.Combine(pathBaoCunShiBie, name + "Feature.txt");
-                File.WriteAllText(outFile, sb.ToString(), Encoding.UTF8);            
-            })));
-        }
         //滑动窗口代码
         [DllImport("CLMatch.dll", EntryPoint = "SlideOnce",CallingConvention = CallingConvention.Cdecl)]
         private static extern int SlideOnceauto(int[] bigImg, int bigH, int bigW, int[] tplImg, int tplH, int tplW, [Out] float[] scoreBuf, [Out] int[] infoBuf);
-        [DllImport("CLMatch.dll", EntryPoint = "SlideOnce", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int SlideOnce(int[] bigImg, int bigH, int bigW,int[] tplImg, int tplH, int tplW,int times,[Out] float[] scoreBuf,[Out] int[] infoBuf);
         private int CNNnetWork = 0;
-        private async void RunSlide_Click_auto(object sender, RoutedEventArgs e)
-        {
-            if (CNNnetWork == 0)
-            {
-                CNNnetWork = 1; // 打开滑动窗口识别
-                try
-                {
-                    var FFTList = await Task.Run(() =>
-                    Directory.EnumerateFiles(FeaturesFolder, "*.txt", SearchOption.AllDirectories).ToList());
-                    for (int i = 0; i < FFTList.Count - 1; i++)
-                    {
-                        List<int> FFTValues = File.ReadAllText(FFTList[i]).Split(',')
-                            .Select(s => s.Trim())
-                            .Where(s => !string.IsNullOrEmpty(s))
-                            .Select(int.Parse).ToList();
-                        int ret = await Task.Run(() => SlideOnceauto(CatchWidth * CatchHeight, bigH, bigW, tplImg, tplH, tplW, scoreBuf, infoBuf));
-                        if (ret == 0)
-                        {
-                            MessageBox.Show($"SlideOnce OK. Top-1 Score = {scoreBuf[0]:F3}");
-                        }
-                        else
-                        {
-                            CNNnetWork = 0; // 关闭滑动窗口识别
-                            MessageBox.Show($"SlideOnce Failed, err = {ret}", "Error");
-                        }
-                    }
-                }
-                catch (DllNotFoundException ex)
-                {
-                    CNNnetWork = 0; // 关闭滑动窗口识别
-                    MessageBox.Show(ex.Message, "DLL Missing");
-                }
-                catch (Exception ex)
-                {
-                    CNNnetWork = 0; // 关闭滑动窗口识别
-                    MessageBox.Show(ex.ToString(), "Unhandled");
-                }
-            }
-        }
-        private async void RunSlide_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                int times = 1; // 滑动次数
-                // 1) 造两张假的图片 —— 实际项目里用真正像素填充
-                int bigH = 512, bigW = 512;
-                int tplH = 64, tplW = 64;
-                int[] bigImg = new int[bigH * bigW];   // 0 填充  待检测图
-                int[] tplImg = new int[tplH * tplW];   // 0 填充     特征模板
-                // 2) 计算输出缓冲区大小
-                //    假设返回每个滑窗一个 score，同时 info 四个 int（例：x,y,w,h）
-                float[] scoreBuf = new float[times];
-                int[] infoBuf = new int[times * 4];
-                int ret = await Task.Run(() =>SlideOnce(bigImg, bigH, bigW,tplImg, tplH, tplW,times: 1,scoreBuf,infoBuf));
-                // 4) 检查返回值 & 用结果
-                if (ret == 0)
-                {
-                    MessageBox.Show($"SlideOnce OK. Top-1 Score = {scoreBuf[0]:F3}");
-                }
-                else
-                { //
-                  MessageBox.Show($"SlideOnce Failed, err = {ret}", "Error");
-                }
-            }
-            catch (DllNotFoundException ex)
-            {
-                MessageBox.Show(ex.Message, "DLL Missing");                   
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.ToString(), "Unhandled");
-            }
-        }
     }
 }
