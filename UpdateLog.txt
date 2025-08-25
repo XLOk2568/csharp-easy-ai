@@ -1,4 +1,9 @@
 === ===
+2025/8/25Mon :
+1.暂停更新,因为精力有限;
+ 1.1什么时候恢复?等几个月吧,C++太难了.
+ 1.2软件停更吗?并非,源代码暂停更新,github源代码将比现有最新版本落后一个版本
+=== ===
 2025/8/24Sat :
 1.可变形卷积V2的OpenCL算法接口调用优化
  1.1直接传入List<int>(搜索图与模板图一样支持)和你想要计算的模板图和搜索图的宽度(均为int)以及传入devcice(也是List<int>)即可完成多OpenCL设备加速计算
@@ -38,6 +43,7 @@ const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, fl
 === ===
 2025/06/08/sun:
 实现了wpf使用脚本，以及完成了部分词元生成。
+
 
 
 
