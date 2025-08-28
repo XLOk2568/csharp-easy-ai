@@ -5,6 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -27,14 +28,11 @@ namespace NavigationViewExample.Pages
         [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void FreeBuffer(IntPtr buffer);
         private bool _running= true;
-        int CatchLeft = 0;  
-        int CatchTop = 0;
-        int CatchWidth = 1920; // 捕获区域宽度
-        int CatchHeight = 1080; // 捕获区域高度
         private void Page_Loaded(object sender, RoutedEventArgs e)
         {
             _running = true;
             Task.Run(() => CaptureLoopAsync());
+            autoAddOpenCL();
         }
         private async Task CaptureLoopAsync()
         {
@@ -140,6 +138,74 @@ namespace NavigationViewExample.Pages
             {
                 MessageBox.Show("运行异常：\n" + ex.Message, "异常", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        private void autoAddOpenCL()
+        {
+            try
+            {
+                string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                string filePath = Path.Combine(appDir, "Appdata", "opencl.txt");
+                if (!File.Exists(filePath)) return;
+                string content = File.ReadAllText(filePath);
+                var items = content.Split(new[] { '*' }, StringSplitOptions.RemoveEmptyEntries);
+                OpenCLUser.Children.Clear();
+                for (int i = 0; i < items.Length; i++)
+                {
+                    var parts = items[i].Split(new[] { ',' }, 2, StringSplitOptions.None);
+                    string linkText = parts.Length > 0 ? parts[0].Trim() : "";
+                    string infoText = parts.Length > 1 ? parts[1].Trim() : "";
+                    var link = new iNKORE.UI.WPF.Modern.Controls.HyperlinkButton
+                    {
+                        Content = linkText,//显卡信息
+                        Tag = i,//索引
+                        ToolTip = infoText//是否开启
+                    };
+                    // 颜色区别是否开启设备
+                    if (infoText == "On")
+                    {
+                        link.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFB95DC5"));
+                    }
+                    else if (infoText == "Off")
+                    {
+                        link.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFD6D6D6"));
+                    }
+                    link.Click += autoOpenCLFuck_Click; // 绑定事件
+                    OpenCLUser.Children.Add(link);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("加载 OpenCL 链接时出错：" + ex.Message);
+            }
+        }
+        private void autoOpenCLFuck_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is iNKORE.UI.WPF.Modern.Controls.HyperlinkButton btn)
+            {
+                var content = btn.Content?.ToString();
+                int tag = (int)btn.Tag;
+                string? toolTip = btn.ToolTip?.ToString();
+                //文件定位
+                string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                string filePath = Path.Combine(appDir, "Appdata", "opencl.txt");
+                //获取内容
+                string content2 = File.ReadAllText(filePath);
+                var items = content2.Split(new[] { '*' }, StringSplitOptions.RemoveEmptyEntries);
+                var parts = items[tag].Split(new[] { ',' }, 2, StringSplitOptions.None);
+                string infoText = parts.Length > 1 ? parts[1].Trim() : "";
+                //处理改变
+                if (toolTip == "On")
+                {
+                    infoText = "Off";
+                }
+                else if (toolTip == "Off")
+                {
+                    infoText = "On";
+                }
+                items[tag] = content+","+infoText;
+                File.WriteAllText(filePath, string.Join("*", items), Encoding.UTF8);
+            }
+            autoAddOpenCL();
         }
     }
 }
