@@ -27,10 +27,8 @@ namespace NavigationViewExample.Pages
         private static extern bool CaptureFrame(int x, int y, int width, int height, out IntPtr buffer, out int outWidth, out int outHeight);
         [DllImport("ScreenCaptureWpfEasy.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void FreeBuffer(IntPtr buffer);
-        private bool _running= true;
         private void Page_Loaded(object sender, RoutedEventArgs e)
         {
-            _running = true;
             Task.Run(() => CaptureLoopAsync());
             autoAddOpenCL();
         }
@@ -206,6 +204,37 @@ namespace NavigationViewExample.Pages
                 File.WriteAllText(filePath, string.Join("*", items), Encoding.UTF8);
             }
             autoAddOpenCL();
+        }
+        private const string DllName = "CLMath.dll";
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int GetDeviceNamesCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "GetDeviceNames", CharSet = CharSet.Ansi)]
+        private static extern void GetDeviceNames(int index, StringBuilder buf, int bufSize);
+        [DllImport("CLMath.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void DisposeOpenCL();
+        public async void Button_Click_1(object sender, RoutedEventArgs e)
+        {
+            if (GuaGua.PCHW == 0)
+            {
+                GuaGua.PCHW = 1;
+                await Task.Run(() =>
+                {
+                    int count = GetDeviceNamesCount();
+                    string sb = "";
+                    var buf = new StringBuilder(256);
+                    for (int i = 0; i < count; i++)
+                    {
+                        buf.Clear();
+                        GetDeviceNames(i, buf, buf.Capacity);
+                        sb = sb + $"Device [{i}]: {buf},On*";
+                    }
+                    string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                    string filePath = Path.Combine(appDir, "Appdata", "opencl.txt");
+                    File.WriteAllText(filePath, sb);
+                });
+                DisposeOpenCL(); // 释放 OpenCL 资源
+                GuaGua.PCHW = 0;
+            }
         }
     }
 }
