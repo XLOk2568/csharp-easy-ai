@@ -1,4 +1,7 @@
 === ===
+2025/8/29 5:
+1.更新了单身狗自瞄的一些bug修复
+=== ===
 2025/8/28 4:
 1.更新了可视化多显卡支持
 === ===
@@ -46,6 +49,7 @@ const int* bigImg, int bigH, int bigW, const int* tplImg, int tplH, int tplW, fl
 === ===
 2025/06/08/sun:
 实现了wpf使用脚本，以及完成了部分词元生成。
+
 
 
 
