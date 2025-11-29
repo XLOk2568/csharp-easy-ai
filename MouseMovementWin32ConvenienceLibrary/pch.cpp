@@ -1,7 +1,6 @@
 ﻿// pch.cpp — MouseMovementWin32ConvenienceLibrary (C++20)
 #include "pch.h"
 #include <Windows.h>
-#include <random>
 #include <thread>
 #include <chrono>
 extern "C" __declspec(dllexport)
@@ -20,31 +19,23 @@ int __cdecl MouseControl(int x1, int y1, int x2, int y2) noexcept
         }
         return -1;
     }
-    // 模拟鼠标从 (x1,y1) 移动到 (x2,y2)，带随机像素偏移并屏蔽用户干扰
-    constexpr int steps = 30;
-    // 锁定鼠标活动区域到起点那一像素，避免用户干扰
-    RECT lockRect = { x1, y1, x1 + 1, y1 + 1 };
-    ClipCursor(&lockRect);
-    ShowCursor(FALSE);
-    // 定位到起点
-    SetCursorPos(x1, y1);
-    // 随机引擎与分布
-    std::mt19937 rng(static_cast<unsigned>(GetTickCount64() & 0xFFFFFFFF));
-    std::uniform_int_distribution<int> jitter(-2, 2);   // 每步像素抖动
-    std::uniform_int_distribution<int> delayDist(1, 4); // 随机延迟
-    for (int i = 1; i <= steps; ++i)
+    // 将目标坐标限定为非负（屏幕左上为起点）
+    int tx = x1 < 0 ? 0 : x1;
+    int ty = y1 < 0 ? 0 : y1;
+    // 尝试屏蔽用户输入（BlockInput 需要提升权限或以交互式会话运行）
+    BOOL blocked = FALSE;
+    if (BlockInput(TRUE))
     {
-        double t = static_cast<double>(i) / steps;
-        int x = static_cast<int>(x1 + (x2 - x1) * t) + jitter(rng);
-        int y = static_cast<int>(y1 + (y2 - y1) * t) + jitter(rng);
-        SetCursorPos(x, y);
-        // 每步间隔 delayDist 毫秒，模拟更自然的速度抖动
-        std::this_thread::sleep_for(std::chrono::milliseconds(delayDist(rng)));
+        blocked = TRUE;
     }
-    // 最终定位 & 恢复状态
-    SetCursorPos(x2, y2);
-    ClipCursor(NULL);
-    ShowCursor(TRUE);
-    return 1;
+    // 移动光标到目标位置
+    BOOL moved = SetCursorPos(tx, ty);
+    // 小延迟以确保位置生效
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // 恢复用户输入（如果之前成功屏蔽）
+    if (blocked)
+    {
+        BlockInput(FALSE);
+    }
+    return moved ? 1 : 0;
 }
-
