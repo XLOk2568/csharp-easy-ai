@@ -1,0 +1,15 @@
+﻿<Page x:Class="NVTemperatureControl.HomePage2"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+      xmlns:local="clr-namespace:NVTemperatureControl"
+      mc:Ignorable="d" 
+      d:DesignHeight="450" d:DesignWidth="800"
+      Title="HomePage2">
+
+    <Grid>
+        <TextBox Name="tesrt" Text="homepage2" Foreground="#FFDC4141"/>
+        <Button Content="Button" Margin="319,204,0,0" VerticalAlignment="Top" Click="Button_Click"/>
+    </Grid>
+</Page>

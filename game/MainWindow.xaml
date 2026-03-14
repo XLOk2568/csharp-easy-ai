@@ -1,0 +1,22 @@
+﻿<Window x:Class="NVTemperatureControl.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:NVTemperatureControl"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="800"
+        ThemeMode="Dark" Loaded="Window_Loaded" Closed="Window_Closed"
+          >
+    <Grid>
+        <StackPanel  Margin="2,4,0,0" Width="198" Height="Auto" HorizontalAlignment="Left" VerticalAlignment="Top" >
+            <Button Name="home_button" Content="主页" FontSize="22" Height="42" Width="196" Margin="2,4,0,0" HorizontalContentAlignment="Left" Click="Button_Click" />
+            <Button Name="autofuckgame_button" Content="自瞄" FontSize="22" Height="42" Width="196" Margin="2,4,0,0" HorizontalContentAlignment="Left" Click="Button_Click_1" />
+            <Button Name="crosshair_button" Content="屏幕准星" FontSize="22" Height="42" Width="196 " Margin="2,4,0,0 " HorizontalContentAlignment="Left" Click="Button_Click_2" />
+        </StackPanel>
+        <StackPanel  Margin="0,0,0,2" Width="198" Height="60" HorizontalAlignment="Left" VerticalAlignment="Bottom" >
+            <Button Name="about_button" Content="关于"  FontSize="22" Height="42" Width="196" Margin="2,4,0,0" HorizontalContentAlignment="Left" Click="Button_Click_About"/>
+        </StackPanel>
+            <Frame x:Name="MainFrame" Margin="204,2,2,4" NavigationUIVisibility="Hidden" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+    </Grid>
+</Window>
